@@ -1,20 +1,34 @@
-from fastapi import FastAPI, Depends
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from routers import incidents, docker_events
+from services.docker_monitor import run_monitor_in_background
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    run_monitor_in_background()
+    yield
+
 
 app = FastAPI(
     title="Sentinel-SoftServe API",
     description="Backend API para el proyecto Sentinel-SoftServe",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
-# Configuración de CORS para permitir conexiones desde el frontend React
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Puerto por defecto de Vite
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(incidents.router)
+app.include_router(docker_events.router)
 
 
 @app.get("/")
