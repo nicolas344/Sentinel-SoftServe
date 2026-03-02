@@ -1,0 +1,128 @@
+services:
+
+  # ── Métricas de contenedores Docker ────────────────────────────────────────
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: sentinel-cadvisor
+    privileged: true
+    volumes:
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  # ── Recolección de métricas y evaluación de reglas ─────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sentinel-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    depends_on:
+      - cadvisor
+    restart: unless-stopped
+
+  # ── Enrutamiento de alertas al backend de Sentinel ─────────────────────────
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: sentinel-alertmanager
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "9093:9093"
+    restart: unless-stopped
+
+  # ── Almacenamiento de logs ──────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:latest
+    container_name: sentinel-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
+  # ── Colector de logs desde Docker ──────────────────────────────────────────
+  promtail:
+    image: grafana/promtail:latest
+    container_name: sentinel-promtail
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail/promtail-config.yml:/etc/promtail/config.yml
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    restart: unless-stopped
+
+  # ── Observabilidad del agente LangGraph ────────────────────────────────────
+  langfuse-db:
+    image: postgres:15-alpine
+    container_name: sentinel-langfuse-db
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  langfuse:
+    image: langfuse/langfuse:2
+    container_name: sentinel-langfuse
+    depends_on:
+      - langfuse-db
+    ports:
+      - "3001:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_SECRET: sentinel-nextauth-secret-2024
+      NEXTAUTH_URL: http://localhost:3001
+      SALT: sentinel-salt-2024
+    restart: unless-stopped
+
+  # ── Vector DB para RAG (runbooks y conocimiento del agente) ────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: sentinel-chromadb
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    restart: unless-stopped
+
+  # ── Visualización (útil para el demo) ─────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sentinel-grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=sentinel123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  loki_data:
+  grafana_data:
+  langfuse_data:
+  chroma_data:

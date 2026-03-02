@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 5s       # Cada 5s scrapea métricas (optimizado para detección rápida)
+  evaluation_interval: 5s   # Cada 5s evalúa las reglas de alerta
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+rule_files:
+  - "alert_rules.yml"
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+    metrics_path: /metrics
+
+  # Métricas nativas del daemon de Docker Desktop (macOS)
+  - job_name: "docker"
+    static_configs:
+      - targets: ["host.docker.internal:9323"]

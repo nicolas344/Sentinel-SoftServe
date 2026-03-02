@@ -1,0 +1,20 @@
+groups:
+  - name: docker_container_alerts
+    interval: 5s
+    rules:
+
+      # Alerta cuando un contenedor deja de reportar métricas
+      # container_last_seen almacena el Unix timestamp de la última vez que cAdvisor vio el contenedor.
+      # Mientras corre: el valor ≈ time(). Al detenerse: el valor se congela y la diferencia crece.
+      # Nota: absent_over_time con regex no funciona por contenedor individual — usa time() - last_seen.
+      - alert: ContainerCrashed
+        expr: >
+          (time() - container_last_seen{id=~"/docker/[a-f0-9]+"}) > 20
+        for: 0m
+        labels:
+          severity: high
+        annotations:
+          summary: "Contenedor desapareció: {{ $labels.id }}"
+          description: >
+            El contenedor con ID {{ $labels.id }} dejó de reportar métricas
+            durante más de 20 segundos. Posible crash o parada inesperada.

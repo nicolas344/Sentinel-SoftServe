@@ -1,22 +1,13 @@
-from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import incidents, docker_events
-from services.docker_monitor import run_monitor_in_background
-
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    run_monitor_in_background()
-    yield
+from routers import incidents, alerts
 
 
 app = FastAPI(
     title="Sentinel-SoftServe API",
     description="Backend API para el proyecto Sentinel-SoftServe",
     version="1.0.0",
-    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -28,7 +19,7 @@ app.add_middleware(
 )
 
 app.include_router(incidents.router)
-app.include_router(docker_events.router)
+app.include_router(alerts.router)
 
 
 @app.get("/")

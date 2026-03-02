@@ -1,0 +1,31 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker_containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+    relabel_configs:
+      # Nombre amigable del contenedor
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: "container"
+      # ID completo del contenedor (para correlacionar con alertas de cAdvisor)
+      - source_labels: ["__meta_docker_container_id"]
+        target_label: "container_id"
+      # Label de stream (stdout/stderr)
+      - source_labels: ["__meta_docker_container_log_stream"]
+        target_label: "stream"
+      # Label de imagen del contenedor
+      - source_labels: ["__meta_docker_container_image_name"]
+        target_label: "image"
+    pipeline_stages:
+      - docker: {}
