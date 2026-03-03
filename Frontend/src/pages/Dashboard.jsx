@@ -13,7 +13,16 @@ const SEVERITY_CONFIG = {
 const STATUS_CONFIG = {
   detected:      { label: 'Detectado',    className: 'bg-blue-500/15 text-blue-400' },
   investigating: { label: 'Investigando', className: 'bg-purple-500/15 text-purple-400' },
+  analyzed:      { label: 'Analizado',    className: 'bg-amber-500/15 text-amber-400' },
   resolved:      { label: 'Resuelto',     className: 'bg-slate-500/15 text-slate-500' },
+}
+
+const TYPE_CONFIG = {
+  app_crash:          { label: 'App Crash',         className: 'bg-red-500/10 text-red-400 border border-red-500/20' },
+  oom:                { label: 'OOM Killed',         className: 'bg-orange-500/10 text-orange-400 border border-orange-500/20' },
+  config_error:       { label: 'Config Error',       className: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' },
+  dependency_failure: { label: 'Dependency Failure', className: 'bg-pink-500/10 text-pink-400 border border-pink-500/20' },
+  unknown:            { label: 'Desconocido',        className: 'bg-slate-500/10 text-slate-400 border border-slate-500/20' },
 }
 
 function SeverityDot({ severity }) {
@@ -32,6 +41,16 @@ function SeverityBadge({ severity }) {
 
 function StatusBadge({ status }) {
   const config = STATUS_CONFIG[status] || STATUS_CONFIG.detected
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.className}`}>
+      {config.label}
+    </span>
+  )
+}
+
+function IncidentTypeBadge({ type }) {
+  if (!type) return null
+  const config = TYPE_CONFIG[type] || TYPE_CONFIG.unknown
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.className}`}>
       {config.label}
@@ -200,6 +219,7 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2 mt-2">
                         <SeverityBadge severity={incident.severity} />
                         <StatusBadge status={incident.status} />
+                        <IncidentTypeBadge type={incident.incident_type} />
                         <span className="text-xs text-slate-600 ml-auto">
                           {formatDate(incident.created_at)}
                         </span>
@@ -234,9 +254,10 @@ export default function Dashboard() {
                 <MetaCard label="Estado" value={STATUS_CONFIG[selected.status]?.label} />
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <SeverityBadge severity={selected.severity} />
                 <StatusBadge status={selected.status} />
+                <IncidentTypeBadge type={selected.incident_type} />
               </div>
 
               <div>
@@ -253,6 +274,24 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
+
+              {selected.agent_reasoning && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                    Razonamiento del agente
+                  </p>
+                  <pre className="bg-slate-900 border border-slate-800 rounded-lg p-4 text-xs text-slate-300 whitespace-pre-wrap max-h-[40rem] overflow-y-auto leading-relaxed font-sans">
+                    {selected.agent_reasoning}
+                  </pre>
+                </div>
+              )}
+
+              {(selected.status === 'investigating' || selected.status === 'detected') && !selected.agent_reasoning && (
+                <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse shrink-0" />
+                  <p className="text-xs text-slate-500">El agente está analizando el incidente...</p>
+                </div>
+              )}
             </div>
           </div>
         ) : (

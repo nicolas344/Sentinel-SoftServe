@@ -24,5 +24,7 @@ class IncidentResponse(BaseModel):
     severity: str
     status: str
     logs: Optional[str] = None
+    incident_type: Optional[str] = None
+    agent_reasoning: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None

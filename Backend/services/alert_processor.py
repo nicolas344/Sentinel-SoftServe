@@ -2,6 +2,7 @@ import os
 import requests
 import logging
 from datetime import datetime, timezone, timedelta
+from typing import Optional, Tuple
 
 from db.supabase_client import supabase
 
@@ -79,11 +80,11 @@ def query_loki_logs(container_id: str, alert_time: datetime, lines: int = 100) -
         return ""
 
 
-def process_prometheus_alert(alert: dict):
+def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, str]]:
     """
     Convierte una alerta de Alertmanager en un incidente de Sentinel.
-    - status 'firing'   → crea incidente
-    - status 'resolved' → cierra incidentes activos del contenedor
+    - status 'firing'   → crea incidente, retorna (incident_id, container_name, logs, severity, title)
+    - status 'resolved' → cierra incidentes activos del contenedor, retorna None
     """
     labels = alert.get("labels", {})
     annotations = alert.get("annotations", {})
@@ -107,7 +108,7 @@ def process_prometheus_alert(alert: dict):
 
     if status == "resolved":
         _resolve_incident(container_name)
-        return
+        return None
 
     # Timestamp de inicio de la alerta
     starts_at_str = alert.get("startsAt", "")
@@ -128,13 +129,16 @@ def process_prometheus_alert(alert: dict):
     }
 
     try:
-        supabase.table("incidents").insert(incident).execute()
+        response = supabase.table("incidents").insert(incident).execute()
+        incident_id = response.data[0]["id"]
         logger.info(
-            f"Incidente creado — container: {container_name}, "
+            f"Incidente creado — id: {incident_id[:8]}, container: {container_name}, "
             f"severidad: {severity}, logs: {len(logs)} chars"
         )
+        return (incident_id, container_name, logs, severity, incident["title"])
     except Exception as e:
         logger.error(f"Error al crear incidente en Supabase: {e}")
+        return None
 
 
 def _resolve_incident(container_name: str):
