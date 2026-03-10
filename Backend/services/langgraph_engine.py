@@ -7,7 +7,8 @@ from urllib.parse import urlparse
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, END
-import chromadb
+# chromadb se importa lazy en _get_chroma_collection() para evitar
+# incompatibilidad pydantic v1 + Python 3.14 al cargar el módulo.
 
 from db.supabase_client import supabase
 
@@ -54,6 +55,7 @@ def _get_llm() -> ChatOpenAI:
 
 def _get_chroma_collection():
     """Conecta al contenedor ChromaDB y retorna la colección 'runbooks'."""
+    import chromadb
     chroma_url = os.getenv("CHROMA_HOST", "http://localhost:8001")
     parsed = urlparse(chroma_url)
     client = chromadb.HttpClient(host=parsed.hostname, port=parsed.port or 8001)
