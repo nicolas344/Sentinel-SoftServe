@@ -1,20 +1,25 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from routers import incidents, alerts
+
 
 app = FastAPI(
     title="Sentinel-SoftServe API",
     description="Backend API para el proyecto Sentinel-SoftServe",
-    version="1.0.0"
+    version="1.0.0",
 )
 
-# Configuración de CORS para permitir conexiones desde el frontend React
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Puerto por defecto de Vite
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(incidents.router)
+app.include_router(alerts.router)
 
 
 @app.get("/")

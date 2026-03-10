@@ -1,0 +1,24 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ["alertname", "name"]
+  group_wait: 5s        # Espera 5s antes de enviar (agrupa alertas relacionadas)
+  group_interval: 10s   # Espera entre envíos para el mismo grupo
+  repeat_interval: 1h   # No repetir la misma alerta por 1 hora
+  receiver: "sentinel-webhook"
+
+receivers:
+  - name: "sentinel-webhook"
+    webhook_configs:
+      - url: "http://host.docker.internal:8000/api/alerts"
+        send_resolved: true
+
+inhibit_rules:
+  # Si un contenedor ya tiene alerta de OOM, no disparar también ContainerRestarted
+  - source_matchers:
+      - alertname = "ContainerOOMKilled"
+    target_matchers:
+      - alertname = "ContainerRestarted"
+    equal:
+      - name
