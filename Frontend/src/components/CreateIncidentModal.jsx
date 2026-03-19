@@ -14,6 +14,7 @@ export default function CreateIncidentModal({ onClose }) {
     const [title, setTitle] = useState('')
     const [containerName, setContainerName] = useState('')
     const [severity, setSeverity] = useState('medium')
+    const [description, setDescription] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
 
@@ -51,6 +52,7 @@ export default function CreateIncidentModal({ onClose }) {
                     title: title.trim(),
                     container_name: containerName.trim(),
                     severity,
+                    description: description.trim() || undefined,
                 }),
             })
 
@@ -137,6 +139,21 @@ export default function CreateIncidentModal({ onClose }) {
                                 </option>
                             ))}
                         </select>
+                    </div>
+
+                    {/* Descripción / Contexto */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-medium text-slate-300">
+                            Descripción / Contexto{' '}
+                            <span className="text-slate-600 text-xs">(opcional)</span>
+                        </label>
+                        <textarea
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            rows={4}
+                            placeholder="Pega logs relevantes o describe lo que está ocurriendo..."
+                            className="bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 outline-none focus:border-blue-500 transition-colors placeholder:text-slate-600 resize-none font-mono"
+                        />
                     </div>
 
                     {/* Error */}

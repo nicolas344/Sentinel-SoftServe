@@ -1,14 +1,29 @@
 import os
+import requests
+from functools import lru_cache
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import jwt
+from jwt.algorithms import ECAlgorithm
 from dotenv import load_dotenv
 
 load_dotenv()
 
+SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
 
 bearer_scheme = HTTPBearer()
+
+
+@lru_cache(maxsize=1)
+def _get_supabase_public_key():
+    """Obtiene y cachea la clave pública de Supabase para verificar tokens ES256."""
+    response = requests.get(f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json", timeout=5)
+    response.raise_for_status()
+    keys = response.json().get("keys", [])
+    if not keys:
+        raise ValueError("No se encontraron claves públicas en Supabase JWKS")
+    return ECAlgorithm.from_jwk(keys[0])
 
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)):
@@ -16,19 +31,26 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_
     try:
         header = jwt.get_unverified_header(token)
         alg = header.get("alg", "HS256")
-        
-        # If the token uses ES256, we'd need the JWKS public key from Supabase.
-        # For simplicity in this demo/MVP, we bypass signature verification
-        # and just decode the payload, relying on the fact that if the user
-        # got it from Supabase, it's their token.
-        payload = jwt.decode(
-            token,
-            options={"verify_signature": False, "verify_aud": False},
-        )
+
+        if alg == "HS256":
+            payload = jwt.decode(
+                token,
+                SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False},
+            )
+        else:
+            public_key = _get_supabase_public_key()
+            payload = jwt.decode(
+                token,
+                public_key,
+                algorithms=["ES256"],
+                options={"verify_aud": False},
+            )
+
         return payload
-    except jwt.PyJWTError as e:
-        print(f"JWT Error: {str(e)}")
+    except jwt.PyJWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Token inválido o expirado: {str(e)}",
+            detail="Token inválido o expirado",
         )
