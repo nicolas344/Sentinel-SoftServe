@@ -1,5 +1,38 @@
 services:
 
+  # ── Backend FastAPI ────────────────────────────────────────────────────────
+  backend:
+    build: ./Backend
+    container_name: sentinel-backend
+    env_file:
+      - ./Backend/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./Backend:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - loki
+      - chromadb
+      - langfuse
+    restart: unless-stopped
+
+  # ── Frontend React + Vite ──────────────────────────────────────────────────
+  frontend:
+    build: ./Frontend
+    container_name: sentinel-frontend
+    env_file:
+      - ./Frontend/.env
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./Frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
+
   # ── Métricas de contenedores Docker ────────────────────────────────────────
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest

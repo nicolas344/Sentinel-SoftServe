@@ -11,7 +11,7 @@ route:
 receivers:
   - name: "sentinel-webhook"
     webhook_configs:
-      - url: "http://host.docker.internal:8000/api/alerts"
+      - url: "http://sentinel-backend:8000/api/alerts"
         send_resolved: true
 
 inhibit_rules:

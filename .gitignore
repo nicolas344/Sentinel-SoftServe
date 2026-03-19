@@ -22,9 +22,11 @@ build/
 .env.local
 .env.*.local
 
-# IDE
+# IDE / Local tooling
 .idea/
 .vscode/
+.cursor/
+.mcp.json
 *.swp
 *.swo
 *~
