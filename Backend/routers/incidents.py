@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from auth import get_current_user
 from db.supabase_client import supabase
+from services.langgraph_engine import run_langgraph_engine
 from models.incident import IncidentStatusUpdate
+from typing import Literal, Optional
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
@@ -44,3 +47,52 @@ async def update_incident_status(
         .execute()
     )
     return response.data
+
+
+
+class CreateIncidentManual(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    container_name: str = Field(..., min_length=1, max_length=100)
+    severity: Literal["critical", "high", "medium", "low"]
+    description: Optional[str] = Field(default=None, max_length=5000)
+
+
+
+
+@router.post("/", status_code=201)
+async def create_incident(
+    body: CreateIncidentManual, 
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user)
+):
+    incident_data = {
+        "title": body.title.strip(),
+        "container_name": body.container_name.strip(),
+        "severity": body.severity,
+        "status": "detected",
+        "incident_type": "manual",
+        "logs": body.description.strip() if body.description else None,
+    }
+    response = supabase.table("incidents").insert(incident_data).execute()
+    created_incident = response.data[0]
+    
+    # Trigger AI investigation in the background
+    background_tasks.add_task(
+        run_langgraph_engine,
+        incident_id=created_incident["id"],
+        container_name=created_incident["container_name"],
+        logs=body.description or "",
+        severity=created_incident["severity"],
+        title=created_incident["title"],
+    )
+    
+    return created_incident
+
+
+
+
+
+    
+
+
+
