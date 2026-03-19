@@ -2,27 +2,29 @@ import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import CreateIncidentModal from '../components/CreateIncidentModal'
 
 const SEVERITY_CONFIG = {
-  critical: { label: 'Crítico', dot: 'bg-red-500',    badge: 'bg-red-500/15 text-red-400 border border-red-500/25' },
-  high:     { label: 'Alto',    dot: 'bg-orange-500', badge: 'bg-orange-500/15 text-orange-400 border border-orange-500/25' },
-  medium:   { label: 'Medio',   dot: 'bg-yellow-500', badge: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/25' },
-  low:      { label: 'Bajo',    dot: 'bg-green-500',  badge: 'bg-green-500/15 text-green-400 border border-green-500/25' },
+  critical: { label: 'Crítico', dot: 'bg-red-500', badge: 'bg-red-500/15 text-red-400 border border-red-500/25' },
+  high: { label: 'Alto', dot: 'bg-orange-500', badge: 'bg-orange-500/15 text-orange-400 border border-orange-500/25' },
+  medium: { label: 'Medio', dot: 'bg-yellow-500', badge: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/25' },
+  low: { label: 'Bajo', dot: 'bg-green-500', badge: 'bg-green-500/15 text-green-400 border border-green-500/25' },
 }
 
 const STATUS_CONFIG = {
-  detected:      { label: 'Detectado',    className: 'bg-blue-500/15 text-blue-400' },
+  detected: { label: 'Detectado', className: 'bg-blue-500/15 text-blue-400' },
   investigating: { label: 'Investigando', className: 'bg-purple-500/15 text-purple-400' },
-  analyzed:      { label: 'Analizado',    className: 'bg-amber-500/15 text-amber-400' },
-  resolved:      { label: 'Resuelto',     className: 'bg-slate-500/15 text-slate-500' },
+  analyzed: { label: 'Analizado', className: 'bg-amber-500/15 text-amber-400' },
+  resolved: { label: 'Resuelto', className: 'bg-slate-500/15 text-slate-500' },
 }
 
 const TYPE_CONFIG = {
-  app_crash:          { label: 'App Crash',         className: 'bg-red-500/10 text-red-400 border border-red-500/20' },
-  oom:                { label: 'OOM Killed',         className: 'bg-orange-500/10 text-orange-400 border border-orange-500/20' },
-  config_error:       { label: 'Config Error',       className: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' },
+  app_crash: { label: 'App Crash', className: 'bg-red-500/10 text-red-400 border border-red-500/20' },
+  oom: { label: 'OOM Killed', className: 'bg-orange-500/10 text-orange-400 border border-orange-500/20' },
+  config_error: { label: 'Config Error', className: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' },
   dependency_failure: { label: 'Dependency Failure', className: 'bg-pink-500/10 text-pink-400 border border-pink-500/20' },
-  unknown:            { label: 'Desconocido',        className: 'bg-slate-500/10 text-slate-400 border border-slate-500/20' },
+  unknown: { label: 'Desconocido', className: 'bg-slate-500/10 text-slate-400 border border-slate-500/20' },
+  manual: { label: 'Manual', className: 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' },
 }
 
 function SeverityDot({ severity }) {
@@ -84,6 +86,7 @@ export default function Dashboard() {
   const [selected, setSelected] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [showCreateModal, setShowCreateModal] = useState(false)
 
   const fetchIncidents = useCallback(async () => {
     setError(null)
@@ -165,15 +168,20 @@ export default function Dashboard() {
 
         {/* Lista de incidentes */}
         <div
-          className={`flex flex-col border-r border-slate-800 overflow-hidden transition-all duration-200 ${
-            selected ? 'w-[420px] shrink-0' : 'flex-1'
-          }`}
+          className={`flex flex-col border-r border-slate-800 overflow-hidden transition-all duration-200 ${selected ? 'w-[420px] shrink-0' : 'flex-1'
+            }`}
         >
           <div className="px-6 py-3 border-b border-slate-800 flex items-center justify-between">
             <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
               Incidentes
             </h2>
             <span className="text-xs text-slate-600">{incidents.length} registros</span>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded-md font-medium transition-colors"
+            >
+              + Nuevo incidente
+            </button>
           </div>
 
           {loading ? (
@@ -204,9 +212,8 @@ export default function Dashboard() {
                 <button
                   key={incident.id}
                   onClick={() => setSelected(incident)}
-                  className={`w-full text-left px-6 py-4 hover:bg-slate-900/60 transition-colors ${
-                    selected?.id === incident.id ? 'bg-slate-900' : ''
-                  }`}
+                  className={`w-full text-left px-6 py-4 hover:bg-slate-900/60 transition-colors ${selected?.id === incident.id ? 'bg-slate-900' : ''
+                    }`}
                 >
                   <div className="flex items-start gap-3">
                     <SeverityDot severity={incident.severity} />
@@ -302,6 +309,8 @@ export default function Dashboard() {
           )
         )}
       </div>
+
+      {showCreateModal && <CreateIncidentModal onClose={() => setShowCreateModal(false)} />}
     </div>
   )
 }
