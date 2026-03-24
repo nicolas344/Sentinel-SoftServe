@@ -1,15 +1,15 @@
-import os
 import json
 import logging
-from typing import TypedDict, Optional
+import os
+from typing import Optional, TypedDict
 from urllib.parse import urlparse
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
-from langgraph.graph import StateGraph, END
+from langchain_openai import ChatOpenAI
+from langgraph.graph import END, StateGraph
+
 # chromadb se importa lazy en _get_chroma_collection() para evitar
 # incompatibilidad pydantic v1 + Python 3.14 al cargar el módulo.
-
 from db.supabase_client import supabase
 
 logger = logging.getLogger(__name__)

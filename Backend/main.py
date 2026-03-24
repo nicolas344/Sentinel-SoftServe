@@ -1,8 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import incidents, alerts
-
+from routers import alerts, incidents
 
 app = FastAPI(
     title="Sentinel-SoftServe API",

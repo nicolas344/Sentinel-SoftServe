@@ -1,11 +1,12 @@
 import os
-import requests
 from functools import lru_cache
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
 import jwt
-from jwt.algorithms import ECAlgorithm
+import requests
 from dotenv import load_dotenv
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jwt.algorithms import ECAlgorithm
 
 load_dotenv()
 

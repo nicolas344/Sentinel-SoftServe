@@ -1,6 +1,7 @@
+from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
 
 from services.alert_processor import process_prometheus_alert
 from services.langgraph_engine import run_langgraph_engine

@@ -1,8 +1,9 @@
-import os
-import requests
 import logging
-from datetime import datetime, timezone, timedelta
+import os
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
+
+import requests
 
 from db.supabase_client import supabase
 
