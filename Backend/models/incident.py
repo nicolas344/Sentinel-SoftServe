@@ -1,6 +1,14 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime
+
+
+class ManualIncidentCreate(BaseModel):
+    """Payload for manually creating an incident from the frontend."""
+
+    title: str
+    container_name: str
+    severity: Literal["critical", "high", "medium", "low"]
 
 
 class IncidentCreate(BaseModel):

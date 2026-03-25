@@ -1,20 +1,42 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from auth import get_current_user
 from db.supabase_client import supabase
-from models.incident import IncidentStatusUpdate
+from models.incident import IncidentStatusUpdate, ManualIncidentCreate
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
 
 @router.get("/")
-async def list_incidents(user=Depends(get_current_user)):
-    response = (
-        supabase.table("incidents")
-        .select("*")
-        .order("created_at", desc=True)
-        .execute()
-    )
+async def list_incidents(
+    user=Depends(get_current_user),
+    status: Optional[str] = None,
+):
+    query = supabase.table("incidents").select("*")
+    if status is not None:
+        query = query.eq("status", status)
+    response = query.order("created_at", desc=True).execute()
     return response.data
+
+
+@router.post("/")
+async def create_incident_manual(
+    body: ManualIncidentCreate,
+    user=Depends(get_current_user),
+):
+    row = {
+        "title": body.title,
+        "container_name": body.container_name,
+        "severity": body.severity,
+        "status": "detected",
+    }
+    response = supabase.table("incidents").insert(row).execute()
+    if isinstance(response.data, list) and response.data:
+        return response.data[0]
+    if isinstance(response.data, dict):
+        return response.data
+    return row
 
 
 @router.get("/{incident_id}")
