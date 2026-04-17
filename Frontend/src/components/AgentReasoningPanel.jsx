@@ -336,7 +336,7 @@ function Timeline({ status }) {
   )
 }
 
-function SectionCard({ title, body }) {
+function SectionCard({ title, body, index = 0 }) {
   const titleKey = title.toLowerCase().replace(/\s*\([^)]*\)/g, '').trim()
   const style = SECTION_STYLES[titleKey] || {
     accent: 'border-l-slate-600',
@@ -346,7 +346,8 @@ function SectionCard({ title, body }) {
 
   return (
     <div
-      className={`rounded-lg border border-slate-800 bg-slate-900/50 border-l-2 ${style.accent} pl-4 pr-4 py-3`}
+      className={`rounded-lg border border-slate-800 bg-slate-900/50 border-l-2 ${style.accent} pl-4 pr-4 py-3 animate-fade-in-up`}
+      style={{ animationDelay: `${index * 80}ms` }}
     >
       <h4 className={`text-[11px] font-semibold uppercase tracking-wider mb-2 ${style.tone}`}>
         {style.label}
@@ -356,26 +357,149 @@ function SectionCard({ title, body }) {
   )
 }
 
-function AnalyzingPlaceholder() {
-  const bars = [1, 2, 3]
+/** Tres dots pulsantes estilo Claude / ChatGPT mientras escribe. */
+function ThinkingDots({ className = '' }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-6">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="flex items-end gap-0.5 h-4">
-          {bars.map((b) => (
+    <span className={`inline-flex items-center gap-1 ${className}`}>
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="inline-block w-1.5 h-1.5 rounded-full bg-sky-400 animate-thinking-dot"
+          style={{ animationDelay: `${i * 180}ms` }}
+        />
+      ))}
+    </span>
+  )
+}
+
+/** Texto que rota cíclicamente mostrando qué está haciendo el agente. */
+function RotatingStatus({ phase }) {
+  // phase: 'detected' (recién creado) | 'investigating' (ya clasificó)
+  const messages = useMemo(
+    () =>
+      phase === 'detected'
+        ? [
+            'Recibiendo alerta',
+            'Preparando contexto',
+            'Clasificando el tipo de incidente',
+          ]
+        : [
+            'Leyendo runbooks relacionados',
+            'Buscando incidentes similares en memoria',
+            'Revisando los logs del contenedor',
+            'Invocando tools de diagnóstico',
+            'Redactando el análisis final',
+          ],
+    [phase]
+  )
+
+  const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setIdx((i) => (i + 1) % messages.length)
+    }, 1800)
+    return () => window.clearInterval(timer)
+  }, [messages.length])
+
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      <span
+        key={idx}
+        className="text-sm text-slate-300 animate-fade-in-up inline-block"
+      >
+        {messages[idx]}
+      </span>
+      <ThinkingDots className="ml-1" />
+    </span>
+  )
+}
+
+/** Skeleton con shimmer — simula "ya casi llega la respuesta". */
+function ShimmerLines({ widths = ['90%', '70%', '95%', '55%'] }) {
+  return (
+    <div className="space-y-2.5">
+      {widths.map((w, i) => (
+        <div
+          key={i}
+          className="h-2 rounded bg-slate-800 animate-shimmer"
+          style={{ width: w }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function AnalyzingPlaceholder({ phase }) {
+  const steps =
+    phase === 'detected'
+      ? [
+          { label: 'Incidente recibido',          state: 'done' },
+          { label: 'Clasificando con el LLM',     state: 'running' },
+          { label: 'Consultando memoria',         state: 'pending' },
+          { label: 'Redactando diagnóstico',      state: 'pending' },
+        ]
+      : [
+          { label: 'Incidente recibido',          state: 'done' },
+          { label: 'Clasificado',                 state: 'done' },
+          { label: 'Investigando con el especialista', state: 'running' },
+          { label: 'Redactando diagnóstico',      state: 'pending' },
+        ]
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 overflow-hidden">
+      {/* Barra superior con barras de ecualizador + estado */}
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-800/70 bg-slate-900/60">
+        <div className="flex items-end gap-0.5 h-4 w-6 shrink-0">
+          {[0, 1, 2, 3].map((b) => (
             <span
               key={b}
-              className="w-1 bg-sky-400/70 rounded-sm animate-pulse"
-              style={{ height: `${40 + b * 20}%`, animationDelay: `${b * 120}ms` }}
+              className="w-1 bg-sky-400 rounded-sm animate-equalizer"
+              style={{ animationDelay: `${b * 150}ms` }}
             />
           ))}
         </div>
-        <p className="text-sm text-slate-300">El agente está razonando...</p>
+        <RotatingStatus phase={phase} />
       </div>
-      <div className="space-y-2">
-        <div className="h-2 bg-slate-800 rounded animate-pulse w-3/4" />
-        <div className="h-2 bg-slate-800 rounded animate-pulse w-1/2" />
-        <div className="h-2 bg-slate-800 rounded animate-pulse w-5/6" />
+
+      {/* Lista de pasos del pipeline */}
+      <div className="px-5 py-4 space-y-2.5">
+        {steps.map((step, i) => (
+          <div key={i} className="flex items-center gap-2.5">
+            {step.state === 'done' && (
+              <span className="w-4 h-4 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
+                <svg className="w-2.5 h-2.5 text-emerald-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path
+                    fillRule="evenodd"
+                    d="M16.7 5.3a1 1 0 010 1.4l-8 8a1 1 0 01-1.4 0l-4-4a1 1 0 111.4-1.4L8 12.6l7.3-7.3a1 1 0 011.4 0z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </span>
+            )}
+            {step.state === 'running' && (
+              <span className="w-4 h-4 rounded-full border-2 border-sky-500/30 border-t-sky-400 animate-spin-slow shrink-0" />
+            )}
+            {step.state === 'pending' && (
+              <span className="w-4 h-4 rounded-full border border-slate-700 shrink-0" />
+            )}
+            <span
+              className={`text-xs ${
+                step.state === 'done'
+                  ? 'text-slate-400'
+                  : step.state === 'running'
+                  ? 'text-slate-200 font-medium'
+                  : 'text-slate-600'
+              }`}
+            >
+              {step.label}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Shimmer de texto "por llegar" */}
+      <div className="px-5 pb-5">
+        <ShimmerLines />
       </div>
     </div>
   )
@@ -386,24 +510,25 @@ function AnalyzingPlaceholder() {
 export default function AgentReasoningPanel({ reasoning, status }) {
   const parsed = useMemo(() => parseReasoning(reasoning), [reasoning])
 
-  // Estado previo al análisis
-  if ((!reasoning || reasoning.trim() === '') && (status === 'detected' || status === 'investigating')) {
+  const isThinking = status === 'detected' || status === 'investigating'
+
+  // 1. Aún no hay nada escrito → skeleton + pasos del pipeline
+  if (!reasoning || reasoning.trim() === '') {
     return (
       <div className="space-y-3">
         <Timeline status={status} />
-        <AnalyzingPlaceholder />
+        <AnalyzingPlaceholder phase={status} />
       </div>
     )
   }
 
-  if (!reasoning) return null
-
-  // Filtramos secciones que ya están resumidas en el header (Clasificación, Investigación)
+  // 2. Hay clasificación pero aún no análisis completo (solo 1 sección: "Clasificación inicial")
   const HIDDEN_IN_BODY = new Set(['clasificación inicial', 'investigación'])
   const bodySections = parsed.sections.filter((s) => {
     const k = s.title.toLowerCase().replace(/\s*\([^)]*\)/g, '').trim()
     return !HIDDEN_IN_BODY.has(k)
   })
+  const stillInvestigating = isThinking && bodySections.length === 0
 
   return (
     <div className="space-y-4">
@@ -415,15 +540,27 @@ export default function AgentReasoningPanel({ reasoning, status }) {
         status={status}
       />
       <Timeline status={status} />
-      {bodySections.length > 0 ? (
+
+      {stillInvestigating && <AnalyzingPlaceholder phase="investigating" />}
+
+      {bodySections.length > 0 && (
         <div className="space-y-3">
           {bodySections.map((s, i) => (
-            <SectionCard key={`${s.title}-${i}`} title={s.title} body={s.body} />
+            <SectionCard key={`${s.title}-${i}`} title={s.title} body={s.body} index={i} />
           ))}
+          {/* Cursor parpadeante si el agente aún está activo pero ya mostró contenido */}
+          {isThinking && (
+            <div className="flex items-center gap-2 pl-4 text-slate-500 text-xs">
+              <ThinkingDots />
+              <span>El agente sigue trabajando</span>
+            </div>
+          )}
         </div>
-      ) : (
-        /* Si no hay subsecciones (ej. solo clasificación todavía), muestra el bloque crudo */
-        <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+      )}
+
+      {/* Fallback — si no pudimos parsear secciones pero hay texto */}
+      {!stillInvestigating && bodySections.length === 0 && (
+        <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 animate-fade-in-up">
           <div className="space-y-2.5">{renderBody(reasoning)}</div>
         </div>
       )}
