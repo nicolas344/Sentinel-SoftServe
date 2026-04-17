@@ -89,6 +89,11 @@ Categorías disponibles:
 - oom: El contenedor fue terminado por el kernel por falta de memoria (exit code 137, OOM Killer).
 - config_error: Variables de entorno faltantes o archivos de configuración inválidos.
 - dependency_failure: Servicio externo no disponible (base de datos caída, connection refused, timeout).
+- memory_pressure: El contenedor está cerca del límite de memoria (>85%) pero aún no crasheó. OOM inminente.
+- cpu_throttling: El contenedor está siendo limitado por su CPU quota. La app responde lento pero no cae.
+- restart_loop: El contenedor se reinicia repetidamente. La política de restart lo levanta pero el error persiste.
+- network_error: Errores de red o paquetes descartados. Conectividad degradada entre servicios.
+- disk_pressure: El disco del contenedor está casi lleno (>85%). Riesgo de errores de escritura.
 - unknown: No encaja en ninguna de las categorías anteriores.
 
 Responde ÚNICAMENTE con un JSON válido con este formato exacto (sin texto adicional):

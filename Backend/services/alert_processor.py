@@ -12,9 +12,37 @@ logger = logging.getLogger(__name__)
 LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100")
 
 SEVERITY_MAP = {
-    "ContainerCrashed": "high",
-    "ContainerOOMKilled": "critical",
+    "ContainerCrashed":           "high",
+    "ContainerOOMKilled":         "critical",
+    "ContainerHighMemory":        "high",
+    "ContainerCPUThrottling":     "medium",
+    "ContainerRestartLoop":       "high",
+    "ContainerUnhealthy":         "high",
+    "ContainerNetworkErrors":     "medium",
+    "ContainerNetworkPacketDrop": "medium",
+    "ContainerDiskPressure":      "high",
+    "ContainerHighSwap":          "medium",
 }
+
+
+def _has_active_incident(container_name: str) -> bool:
+    """
+    Verifica si ya existe un incidente activo (detected/investigating) para este contenedor.
+    Usado para deduplicación: evita crear múltiples incidentes por el mismo contenedor
+    cuando varias alertas se disparan en cascada (ej: HighMemory → OOMKilled → Crashed).
+    """
+    try:
+        response = (
+            supabase.table("incidents")
+            .select("id")
+            .eq("container_name", container_name)
+            .in_("status", ["detected", "investigating"])
+            .execute()
+        )
+        return len(response.data) > 0
+    except Exception as e:
+        logger.error(f"Error verificando incidente activo para '{container_name}': {e}")
+        return False
 
 
 def _extract_container_id(raw_id: str) -> str:
@@ -98,7 +126,7 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
     # cAdvisor expone el label 'id' como '/docker/<container_id>'
     raw_id = labels.get("id", "")
     container_id = _extract_container_id(raw_id)
-    container_name = container_id[:12] if container_id else "unknown"
+    container_name = labels.get("name") or (container_id[:12] if container_id else "unknown")
 
     raw_instance = labels.get("instance", "")
     # 'instance' en cAdvisor local es 'cadvisor:8080' — usamos 'localhost'
@@ -119,6 +147,15 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
         alert_time = datetime.now(tz=timezone.utc)
 
     logs = query_loki_logs(container_id, alert_time)
+
+    # Deduplicación: si ya hay un incidente activo para este contenedor, no crear otro.
+    # Las inhibit rules de Alertmanager son la primera línea de defensa, pero pueden llegar
+    # alertas en cascada antes de que las inhibiciones entren en efecto.
+    if container_name != "unknown" and _has_active_incident(container_name):
+        logger.info(
+            f"Incidente activo ya existe para '{container_name}' ({alert_name}) — omitiendo duplicado"
+        )
+        return None
 
     incident = {
         "title": summary,

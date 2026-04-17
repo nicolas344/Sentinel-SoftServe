@@ -15,10 +15,33 @@ receivers:
         send_resolved: true
 
 inhibit_rules:
-  # Si un contenedor ya tiene alerta de OOM, no disparar también ContainerRestarted
+  # OOM Kill es la causa raíz — suprimir alarmas de síntomas del mismo contenedor
   - source_matchers:
       - alertname = "ContainerOOMKilled"
     target_matchers:
-      - alertname = "ContainerRestarted"
+      - alertname = "ContainerHighMemory"
+    equal:
+      - name
+
+  - source_matchers:
+      - alertname = "ContainerOOMKilled"
+    target_matchers:
+      - alertname = "ContainerCrashed"
+    equal:
+      - name
+
+  # Crash definitivo — suprimir alertas de degradación del mismo contenedor
+  - source_matchers:
+      - alertname = "ContainerCrashed"
+    target_matchers:
+      - alertname =~ "ContainerHighMemory|ContainerRestartLoop|ContainerUnhealthy|ContainerCPUThrottling|ContainerDiskPressure|ContainerHighSwap"
+    equal:
+      - name
+
+  # Restart loop activo — suprimir alertas de degradación puntual (el loop ya los explica)
+  - source_matchers:
+      - alertname = "ContainerRestartLoop"
+    target_matchers:
+      - alertname =~ "ContainerCPUThrottling|ContainerNetworkErrors|ContainerNetworkPacketDrop"
     equal:
       - name

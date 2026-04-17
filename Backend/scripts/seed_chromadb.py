@@ -173,6 +173,192 @@ ACCIONES RECOMENDADAS:
 URGENCIA: ALTA — el servicio está caído pero la causa es externa y normalmente resoluble""",
     },
     {
+        "id": "runbook-memory-pressure-001",
+        "type": "memory_pressure",
+        "text": """RUNBOOK: Memory Pressure — Contenedor cerca del límite de memoria
+
+TIPO: memory_pressure
+
+SEÑALES EN LOGS:
+- Aplicación cada vez más lenta o con latencias altas
+- "GC overhead limit exceeded" (JVM) — el garbage collector consume > 98% del tiempo
+- "Warning: high memory usage" en logs de la aplicación
+- Respuestas HTTP lentas o timeouts intermitentes sin error explícito
+- "Allocation failed" o "out of memory" sin que el kernel haya matado el proceso aún
+- Logs de caché o pool de conexiones indicando presión: "evicting", "pool exhausted"
+
+DIAGNÓSTICO:
+El contenedor está usando más del 85% de su límite de memoria configurado de forma sostenida.
+No ha crasheado aún, pero el OOM Kill es inminente si la tendencia continúa. Causas comunes:
+- Tráfico o carga más alta de lo habitual que supera el límite configurado
+- Memory leak gradual: la memoria crece continuamente sin liberarse entre requests
+- Caché en memoria sin límite superior que crece con el tiempo
+- Límite de memoria configurado demasiado bajo para la carga normal del servicio
+- Carga de datos grandes en memoria (reportes, exports, procesamiento de archivos)
+
+ACCIONES RECOMENDADAS:
+1. Verificar el límite actual: docker inspect <contenedor> | grep -i memory
+2. Monitorear el uso en tiempo real: docker stats <contenedor> --no-stream
+3. Si el límite es bajo para la carga normal: aumentarlo en docker-compose.yml bajo 'mem_limit'
+4. Revisar si el uso crece de forma sostenida (leak) o en picos (carga): comparar usage a lo largo del tiempo en Grafana
+5. Si es un memory leak: revisar caches sin límite, conexiones no cerradas, objetos acumulados
+6. Si es pico de carga: implementar rate limiting o escalar horizontalmente el servicio
+7. Configurar alerta de Grafana al 70% para tener más margen de reacción antes del OOM
+8. Si el OOM Kill es inminente y el servicio es crítico: reiniciar el contenedor preventivamente
+
+URGENCIA: ALTA — el servicio está degradándose y crasheará pronto si no se actúa""",
+    },
+    {
+        "id": "runbook-cpu-throttling-001",
+        "type": "cpu_throttling",
+        "text": """RUNBOOK: CPU Throttling — Contenedor limitado por CPU quota
+
+TIPO: cpu_throttling
+
+SEÑALES EN LOGS:
+- Latencias de respuesta más altas de lo normal sin errores explícitos
+- Timeouts en requests entre microservicios
+- "Request timeout" o "context deadline exceeded" en llamadas internas
+- Operaciones que normalmente son rápidas toman mucho más tiempo
+- Health checks fallando por timeout (no por error de aplicación)
+- Logs de la aplicación muestran procesamiento lento sin causa aparente
+
+DIAGNÓSTICO:
+El contenedor tiene más del 25% de sus períodos de CPU CFS throttled de forma sostenida.
+Esto significa que el proceso quiere usar CPU pero el kernel lo detiene por exceder el CPU limit
+configurado en docker-compose. La aplicación no crashea, pero responde lentamente. Causas comunes:
+- CPU limit configurado demasiado bajo para la carga actual del servicio
+- Pico de carga que supera temporalmente el CPU limit configurado
+- Un proceso dentro del contenedor consumiendo CPU de forma anormal (loop infinito, bug)
+- Operaciones costosas en CPU (serialización, compresión, criptografía) sin paralelismo
+
+ACCIONES RECOMENDADAS:
+1. Verificar el CPU limit actual: docker inspect <contenedor> --format='{{.HostConfig.NanoCpus}}'
+2. Identificar qué proceso consume más CPU dentro del contenedor: docker exec <contenedor> top
+3. Ver el porcentaje de throttling en Prometheus: container_cpu_cfs_throttled_periods_total
+4. Si el CPU limit es bajo para la carga normal: aumentarlo en docker-compose.yml bajo 'cpus'
+5. Si es un proceso específico el que consume de más: investigar bug de CPU en ese proceso
+6. Si es carga legítima: considerar escalar horizontalmente (más réplicas) en vez de aumentar CPU limit
+7. Revisar si hay operaciones bloqueantes en el event loop (Node.js) o sincrónicas innecesarias
+8. Agregar métricas de latencia en la aplicación para correlacionar con los períodos de throttling
+
+URGENCIA: MEDIA — el servicio está degradado pero operativo. Actuar antes de que cause timeouts en cascada""",
+    },
+    {
+        "id": "runbook-restart-loop-001",
+        "type": "restart_loop",
+        "text": """RUNBOOK: Restart Loop — Contenedor reiniciando repetidamente
+
+TIPO: restart_loop
+
+SEÑALES EN LOGS:
+- Los logs del contenedor empiezan desde el inicio repetidamente (mensajes de arranque)
+- "Starting...", "Initializing..." aparecen múltiples veces en poco tiempo
+- El mismo error aparece al final de cada ciclo de logs antes del reinicio
+- "Container is restarting" en eventos de Docker
+- Los logs de otras herramientas muestran health checks fallando y recuperándose en ciclos
+- El servicio aparece como "Up X seconds" repetidamente en docker ps
+
+DIAGNÓSTICO:
+El contenedor se reinició 3 o más veces en los últimos 10 minutos. Esto indica que la política
+de restart (restart: always o on-failure) está haciendo que Docker lo reinicie automáticamente,
+pero el problema persiste. Causas comunes:
+- Error fatal que ocurre en el arranque: config_error o dependency_failure al iniciar
+- OOM Kill en cada arranque porque el servicio consume demasiada memoria al inicializar
+- Dependency no disponible: el servicio depende de una base de datos que no está lista
+- Bug introducido recientemente que causa crash inmediato bajo ciertas condiciones
+- Exit code != 0 por error de configuración que solo se manifiesta al arrancar
+
+ACCIONES RECOMENDADAS:
+1. Ver los logs del ciclo de restart más reciente: docker logs <contenedor> --tail 50
+2. Verificar el exit code del último crash: docker inspect <contenedor> --format='{{.State.ExitCode}}'
+   - Exit code 137: OOM — ver runbook oom
+   - Exit code 1: error de aplicación — ver stack trace en logs
+   - Exit code 143: SIGTERM externo — verificar si algo está mandando señales al contenedor
+3. Revisar si las dependencias están disponibles: docker ps | grep <servicio-dependiente>
+4. Verificar si hubo cambios recientes de código o configuración que coincidan con el inicio del loop
+5. Detener el loop temporalmente para investigar: docker update --restart no <contenedor>
+6. Revisar variables de entorno y archivos de config necesarios para el arranque
+7. Si es dependency_failure: agregar depends_on con healthcheck en docker-compose.yml
+8. Una vez corregida la causa raíz, restaurar la política de restart: docker update --restart on-failure <contenedor>
+
+URGENCIA: ALTA — el servicio no está disponible y consume recursos en cada reinicio fallido""",
+    },
+    {
+        "id": "runbook-network-error-001",
+        "type": "network_error",
+        "text": """RUNBOOK: Network Error — Errores o pérdida de paquetes en red
+
+TIPO: network_error
+
+SEÑALES EN LOGS:
+- "Connection reset by peer", "broken pipe", "ECONNRESET"
+- "i/o timeout", "dial tcp: i/o timeout", "read tcp: use of closed network connection"
+- Errores intermitentes de conexión que no eran persistentes antes
+- Timeouts en llamadas a APIs externas o entre microservicios
+- "packet loss" en herramientas de diagnóstico de red
+- Errores 502 o 504 en gateways que enrutan al contenedor
+
+DIAGNÓSTICO:
+El contenedor presenta una tasa elevada de errores de red (receive + transmit errors) o paquetes
+descartados. Esto no significa que el servicio esté caído, pero la comunicación de red está
+degradada. Causas comunes:
+- Saturación del interfaz de red del host Docker
+- Conflictos de red entre contenedores en la misma red Docker
+- MTU mismatch entre la red del host y la red Docker virtual
+- El contenedor receptor está saturado y descarta paquetes entrantes (buffer overflow)
+- Problema de hardware o configuración de red del host
+
+ACCIONES RECOMENDADAS:
+1. Verificar conectividad básica: docker exec <contenedor> ping <otro-servicio>
+2. Inspeccionar la red Docker: docker network inspect <nombre-de-red>
+3. Ver las interfaces de red del contenedor: docker exec <contenedor> ip -s link
+4. Revisar si el host tiene problemas de red: ifconfig o ip -s link en el host
+5. Verificar si el MTU está correctamente configurado en la red Docker (default: 1500)
+6. Revisar si hay saturación del host: netstat -s | grep -i error en el host
+7. Si los errores son entre contenedores específicos: revisar que estén en la misma red Docker
+8. Si el error es con servicios externos: verificar reglas de firewall y DNS del host
+
+URGENCIA: MEDIA — el servicio puede seguir operando pero con degradación. Investigar antes de que cause fallos en cascada""",
+    },
+    {
+        "id": "runbook-disk-pressure-001",
+        "type": "disk_pressure",
+        "text": """RUNBOOK: Disk Pressure — Disco del contenedor casi lleno
+
+TIPO: disk_pressure
+
+SEÑALES EN LOGS:
+- "No space left on device", "ENOSPC", "disk quota exceeded"
+- "Failed to write to file", "write error: no space left"
+- Base de datos reporta error al crear archivos de WAL o checkpoint
+- "Unable to create temporary file" en operaciones de sort o join en bases de datos
+- Logs de la aplicación dejan de escribirse o se truncan
+- Errores de escritura en cualquier operación de I/O (uploads, logs, caché en disco)
+
+DIAGNÓSTICO:
+El contenedor está usando más del 85% de su límite de almacenamiento en disco de forma sostenida.
+Si llega al 100%, cualquier operación de escritura fallará, incluyendo logs, WAL de bases de datos,
+uploads de archivos y escrituras de caché. Causas comunes:
+- Acumulación de logs dentro del contenedor sin rotación configurada
+- Base de datos creciendo sin límite en un volumen de capacidad fija
+- Archivos temporales que no se limpian (tmp, cache, uploads sin procesar)
+- Índices o archivos de datos que crecieron más de lo esperado
+- Backups o dumps almacenados localmente en el contenedor
+
+ACCIONES RECOMENDADAS:
+1. Identificar qué ocupa más espacio: docker exec <contenedor> df -h && du -sh /* 2>/dev/null | sort -rh | head -20
+2. Ver el límite de storage configurado: docker inspect <contenedor> --format='{{.HostConfig.StorageOpt}}'
+3. Limpiar logs dentro del contenedor si es posible: docker exec <contenedor> find /var/log -name "*.log" -mtime +7 -delete
+4. Limpiar archivos temporales: docker exec <contenedor> find /tmp -mtime +1 -delete
+5. Si es una base de datos: revisar si hay archivos WAL o backups acumulados
+6. Si el límite de disco es bajo: aumentarlo en docker-compose.yml bajo 'storage_opt'
+7. Configurar log rotation en la aplicación o usar el log driver de Docker (json-file con max-size)
+8. Considerar mover datos persistentes a volúmenes Docker externos en vez de el filesystem del contenedor
+
+URGENCIA: ALTA — cuando llegue al 100% el servicio fallará con errores de escritura no recuperables""",
+    },
+    {
         "id": "runbook-unknown-001",
         "type": "unknown",
         "text": """RUNBOOK: Unknown Failure — Causa de fallo no determinada

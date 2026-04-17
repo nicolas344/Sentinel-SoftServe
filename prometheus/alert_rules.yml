@@ -3,10 +3,10 @@ groups:
     interval: 5s
     rules:
 
+      # ── Tier 0: Crash ─────────────────────────────────────────────────────────
       # Alerta cuando un contenedor deja de reportar métricas
       # container_last_seen almacena el Unix timestamp de la última vez que cAdvisor vio el contenedor.
       # Mientras corre: el valor ≈ time(). Al detenerse: el valor se congela y la diferencia crece.
-      # Nota: absent_over_time con regex no funciona por contenedor individual — usa time() - last_seen.
       - alert: ContainerCrashed
         expr: >
           (time() - container_last_seen{id=~"/docker/[a-f0-9]+"}) > 20
@@ -14,7 +14,151 @@ groups:
         labels:
           severity: high
         annotations:
-          summary: "Contenedor desapareció: {{ $labels.id }}"
+          summary: "Contenedor caído: {{ $labels.name | default $labels.id }}"
           description: >
-            El contenedor con ID {{ $labels.id }} dejó de reportar métricas
+            El contenedor {{ $labels.name | default $labels.id }} dejó de reportar métricas
             durante más de 20 segundos. Posible crash o parada inesperada.
+
+      # ── Tier 1: Alta prioridad ────────────────────────────────────────────────
+
+      # OOM Kill — el kernel terminó el contenedor por falta de memoria
+      - alert: ContainerOOMKilled
+        expr: >
+          increase(container_oom_events_total{id=~"/docker/[a-f0-9]+"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OOM Kill ({{ printf \"%.0f\" $value }} evento/s): {{ $labels.name | default $labels.id }}"
+          description: >
+            El contenedor {{ $labels.name | default $labels.id }} fue terminado por el OOM Killer
+            del kernel. Se registraron {{ printf "%.0f" $value }} evento(s) de OOM en los últimos 5 minutos.
+
+      # Alta memoria — uso supera el 85% del límite (señal de OOM inminente)
+      # Solo aplica a contenedores con límite de memoria configurado (> 0)
+      - alert: ContainerHighMemory
+        expr: >
+          (
+            container_memory_usage_bytes{id=~"/docker/[a-f0-9]+"}
+            / container_spec_memory_limit_bytes{id=~"/docker/[a-f0-9]+"}
+          ) > 0.85
+          and container_spec_memory_limit_bytes{id=~"/docker/[a-f0-9]+"} > 0
+        for: 2m
+        labels:
+          severity: high
+        annotations:
+          summary: "Memoria al {{ printf \"%.0f\" (mul $value 100) }}% del límite: {{ $labels.name | default $labels.id }}"
+          description: >
+            El contenedor {{ $labels.name | default $labels.id }} lleva más de 2 minutos
+            usando el {{ printf "%.0f" (mul $value 100) }}% de su límite de memoria. OOM Kill inminente.
+
+      # CPU Throttling — CPU limitada más del 25% del tiempo durante 5 minutos
+      # Indica que el contenedor está degradado por un CPU limit demasiado bajo
+      - alert: ContainerCPUThrottling
+        expr: >
+          rate(container_cpu_cfs_throttled_periods_total{id=~"/docker/[a-f0-9]+"}[5m])
+          / rate(container_cpu_cfs_periods_total{id=~"/docker/[a-f0-9]+"}[5m]) > 0.25
+        for: 5m
+        labels:
+          severity: medium
+        annotations:
+          summary: "CPU throttling al {{ printf \"%.0f\" (mul $value 100) }}%: {{ $labels.name | default $labels.id }}"
+          description: >
+            El contenedor {{ $labels.name | default $labels.id }} lleva 5 minutos con el
+            {{ printf "%.0f" (mul $value 100) }}% de sus períodos de CPU throttled. La aplicación está degradada.
+
+      # Restart loop — el contenedor reinició 3 o más veces en los últimos 10 minutos
+      - alert: ContainerRestartLoop
+        expr: >
+          changes(container_start_time_seconds{id=~"/docker/[a-f0-9]+"}[10m]) >= 3
+        for: 0m
+        labels:
+          severity: high
+        annotations:
+          summary: "Restart loop ({{ printf \"%.0f\" $value }} reinicios): {{ $labels.name | default $labels.id }}"
+          description: >
+            El contenedor {{ $labels.name | default $labels.id }} se reinició
+            {{ printf "%.0f" $value }} veces en los últimos 10 minutos. Posible CrashLoop.
+
+      # Contenedor unhealthy — health check fallando
+      # Nota: requiere que el contenedor tenga HEALTHCHECK configurado en su Dockerfile o docker-compose.
+      # El label health_status puede variar según la versión de cAdvisor — verificar en Prometheus UI.
+      - alert: ContainerUnhealthy
+        expr: >
+          container_health_state{id=~"/docker/[a-f0-9]+", health_status="unhealthy"} == 1
+        for: 1m
+        labels:
+          severity: high
+        annotations:
+          summary: "Health check fallando: {{ $labels.name | default $labels.id }}"
+          description: >
+            El health check del contenedor {{ $labels.name | default $labels.id }} lleva
+            más de 1 minuto fallando. El servicio está vivo pero no responde correctamente.
+
+      # ── Tier 2: Prioridad media ───────────────────────────────────────────────
+
+      # Errores de red — más de 10 errores/segundo en recepción + transmisión
+      - alert: ContainerNetworkErrors
+        expr: >
+          rate(container_network_receive_errors_total{id=~"/docker/[a-f0-9]+"}[5m])
+          + rate(container_network_transmit_errors_total{id=~"/docker/[a-f0-9]+"}[5m]) > 10
+        for: 2m
+        labels:
+          severity: medium
+        annotations:
+          summary: "Errores de red ({{ printf \"%.1f\" $value }}/s): {{ $labels.name | default $labels.id }}"
+          description: >
+            El contenedor {{ $labels.name | default $labels.id }} presenta
+            {{ printf "%.1f" $value }} errores de red por segundo durante 2 minutos.
+            Posible problema de conectividad.
+
+      # Paquetes descartados — más de 5 paquetes/segundo perdidos
+      - alert: ContainerNetworkPacketDrop
+        expr: >
+          rate(container_network_receive_packets_dropped_total{id=~"/docker/[a-f0-9]+"}[5m])
+          + rate(container_network_transmit_packets_dropped_total{id=~"/docker/[a-f0-9]+"}[5m]) > 5
+        for: 2m
+        labels:
+          severity: medium
+        annotations:
+          summary: "Paquetes descartados ({{ printf \"%.1f\" $value }}/s): {{ $labels.name | default $labels.id }}"
+          description: >
+            El contenedor {{ $labels.name | default $labels.id }} está descartando
+            {{ printf "%.1f" $value }} paquetes de red por segundo. Posible saturación de red.
+
+      # Presión de disco — uso supera el 85% del límite del filesystem
+      # Solo aplica a contenedores con límite de disco configurado (> 0) y excluye tmpfs
+      - alert: ContainerDiskPressure
+        expr: >
+          (
+            container_fs_usage_bytes{id=~"/docker/[a-f0-9]+", device!="", device!~"tmpfs.*"}
+            / container_fs_limit_bytes{id=~"/docker/[a-f0-9]+", device!="", device!~"tmpfs.*"}
+          ) > 0.85
+          and container_fs_limit_bytes{id=~"/docker/[a-f0-9]+", device!="", device!~"tmpfs.*"} > 0
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "Disco al {{ printf \"%.0f\" (mul $value 100) }}% del límite: {{ $labels.name | default $labels.id }}"
+          description: >
+            El contenedor {{ $labels.name | default $labels.id }} lleva 5 minutos usando el
+            {{ printf "%.0f" (mul $value 100) }}% de su límite de disco. Riesgo de errores de escritura.
+
+      # Alto uso de swap — usa más del 50% del swap limit configurado
+      # Solo aplica a contenedores con swap limit configurado (> 0)
+      - alert: ContainerHighSwap
+        expr: >
+          container_memory_swap{id=~"/docker/[a-f0-9]+"} > 0
+          and container_spec_memory_swap_limit_bytes{id=~"/docker/[a-f0-9]+"} > 0
+          and (
+            container_memory_swap{id=~"/docker/[a-f0-9]+"}
+            / container_spec_memory_swap_limit_bytes{id=~"/docker/[a-f0-9]+"}
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: medium
+        annotations:
+          summary: "Swap al {{ printf \"%.0f\" (mul $value 100) }}% del límite: {{ $labels.name | default $labels.id }}"
+          description: >
+            El contenedor {{ $labels.name | default $labels.id }} lleva 5 minutos usando el
+            {{ printf "%.0f" (mul $value 100) }}% de su límite de swap. Posible presión de memoria sostenida.
