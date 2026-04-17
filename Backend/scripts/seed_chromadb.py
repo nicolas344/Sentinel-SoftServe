@@ -2,10 +2,16 @@
 """
 Seed inicial de ChromaDB con runbooks operacionales para Sentinel.
 
-Ejecutar UNA SOLA VEZ desde el directorio Backend/:
+Ejecutar desde el directorio Backend/:
     python scripts/seed_chromadb.py
 
-Si ChromaDB ya tenía datos previos, los elimina y recarga desde cero.
+Carga los runbooks en colecciones separadas por dominio siguiendo la
+convención del framework multiagente:
+    - runbooks-docker   (este script)
+    - runbooks-podman   (seed propio cuando añadamos el agente)
+    - runbooks-postgres (seed propio cuando añadamos el agente)
+
+Si la colección ya tenía datos previos, los elimina y recarga desde cero.
 """
 
 import os
@@ -21,6 +27,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 import chromadb
 
 CHROMA_HOST = os.getenv("CHROMA_HOST", "http://localhost:8001")
+COLLECTION_NAME = "runbooks-docker"  # dominio: docker (convención del framework multiagente)
 
 # ── Runbooks ──────────────────────────────────────────────────────────────────
 # Cada runbook tiene: id único, tipo (coincide con incident_type del agente), y texto completo.
@@ -401,24 +408,25 @@ URGENCIA: VARIABLE — investigar con calma para determinar la causa real antes 
 
 def seed():
     parsed = urlparse(CHROMA_HOST)
-    client = chromadb.HttpClient(host=parsed.hostname, port=parsed.port or 8001)
+    client = chromadb.HttpClient(host=parsed.hostname, port=parsed.port or 8000)
 
-    # Eliminar colección previa para seed limpio
-    try:
-        client.delete_collection("runbooks")
-        print("Colección 'runbooks' previa eliminada.")
-    except Exception:
-        pass
+    # Eliminar la colección previa (nombre nuevo y también el viejo por compat)
+    for legacy_name in (COLLECTION_NAME, "runbooks"):
+        try:
+            client.delete_collection(legacy_name)
+            print(f"Colección '{legacy_name}' previa eliminada.")
+        except Exception:
+            pass
 
-    collection = client.create_collection("runbooks")
+    collection = client.create_collection(COLLECTION_NAME)
 
     collection.add(
         documents=[r["text"] for r in RUNBOOKS],
         ids=[r["id"] for r in RUNBOOKS],
-        metadatas=[{"type": r["type"]} for r in RUNBOOKS],
+        metadatas=[{"type": r["type"], "domain": "docker"} for r in RUNBOOKS],
     )
 
-    print(f"✓ {len(RUNBOOKS)} runbooks cargados en ChromaDB ({CHROMA_HOST}).")
+    print(f"✓ {len(RUNBOOKS)} runbooks cargados en '{COLLECTION_NAME}' ({CHROMA_HOST}).")
     print("  Tipos cargados:", [r["type"] for r in RUNBOOKS])
 
 
