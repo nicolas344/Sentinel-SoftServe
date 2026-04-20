@@ -38,19 +38,20 @@ async def receive_alertmanager_webhook(
 ):
     """
     Recibe webhooks de Prometheus Alertmanager y crea incidentes en Sentinel.
-    Si la alerta es 'firing', lanza el motor LangGraph en background tras crear el incidente.
+    Si la alerta es 'firing', lanza el motor LangGraph en background.
     """
     for alert in webhook.alerts:
         result = process_prometheus_alert(alert.model_dump())
         if result:
-            incident_id, container_name, logs, severity, title = result
+            incident_id, target, logs, severity, title, container_runtime = result
             background_tasks.add_task(
                 run_langgraph_engine,
                 incident_id,
-                container_name,
+                target,
                 logs,
                 severity,
                 title,
+                labels={"container_runtime": container_runtime} if container_runtime else {},
             )
 
     return {"message": "Alertas procesadas", "count": len(webhook.alerts)}

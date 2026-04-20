@@ -12,8 +12,9 @@ const SEVERITY_OPTIONS = [
 
 export default function CreateIncidentModal({ onClose }) {
     const [title, setTitle] = useState('')
-    const [containerName, setContainerName] = useState('')
+    const [target, setTarget] = useState('')
     const [severity, setSeverity] = useState('medium')
+    const [sourceType, setSourceType] = useState('manual')
     const [description, setDescription] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
@@ -50,8 +51,9 @@ export default function CreateIncidentModal({ onClose }) {
                 },
                 body: JSON.stringify({
                     title: title.trim(),
-                    container_name: containerName.trim(),
+                    target: target.trim(),
                     severity,
+                    source_type: sourceType,
                     description: description.trim() || undefined,
                 }),
             })
@@ -108,17 +110,48 @@ export default function CreateIncidentModal({ onClose }) {
                         />
                     </div>
 
-                    {/* Contenedor / Servicio */}
+                    {/* Tipo de fuente */}
                     <div className="flex flex-col gap-1.5">
                         <label className="text-sm font-medium text-slate-300">
-                            Contenedor / Servicio <span className="text-red-400">*</span>
+                            Tipo de recurso
+                        </label>
+                        <div className="flex gap-2">
+                            {[
+                                { value: 'manual',    label: 'Manual' },
+                                { value: 'container', label: 'Contenedor' },
+                                { value: 'database',  label: 'Base de datos' },
+                            ].map((opt) => (
+                                <button
+                                    key={opt.value}
+                                    type="button"
+                                    onClick={() => setSourceType(opt.value)}
+                                    className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors border ${
+                                        sourceType === opt.value
+                                            ? 'bg-blue-600 border-blue-500 text-white'
+                                            : 'bg-slate-950 border-slate-700 text-slate-400 hover:border-slate-500'
+                                    }`}
+                                >
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Recurso / Objetivo */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-sm font-medium text-slate-300">
+                            Recurso <span className="text-red-400">*</span>
                         </label>
                         <input
                             type="text"
-                            value={containerName}
-                            onChange={(e) => setContainerName(e.target.value)}
+                            value={target}
+                            onChange={(e) => setTarget(e.target.value)}
                             required
-                            placeholder="Ej: nginx-prod, api-gateway"
+                            placeholder={
+                                sourceType === 'database'
+                                    ? 'Ej: postgres/app-db, mysql/orders'
+                                    : 'Ej: nginx-prod, api-gateway'
+                            }
                             className="bg-slate-950 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-slate-50 outline-none focus:border-blue-500 transition-colors placeholder:text-slate-600"
                         />
                     </div>

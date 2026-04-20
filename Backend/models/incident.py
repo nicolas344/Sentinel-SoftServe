@@ -1,31 +1,43 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel
 
+SourceType   = Literal["container", "database", "manual"]
+RuntimeType  = Literal["docker", "podman"]
+SeverityType = Literal["critical", "high", "medium", "low"]
+StatusType   = Literal["detected", "investigating", "analyzed", "resolved"]
+
 
 class IncidentCreate(BaseModel):
-    title: str
-    container_name: str
-    exit_code: Optional[str] = None
-    severity: str = "medium"
-    status: str = "detected"
-    logs: Optional[str] = None
+    title:             str
+    target:            str
+    severity:          SeverityType = "medium"
+    status:            StatusType   = "detected"
+    source_type:       SourceType   = "container"
+    container_runtime: Optional[RuntimeType] = "docker"
+    logs:              Optional[str] = None
+    server_name:       Optional[str] = None
+    metrics_snapshot:  Optional[dict] = None
 
 
 class IncidentStatusUpdate(BaseModel):
-    status: str
+    status: StatusType
 
 
 class IncidentResponse(BaseModel):
-    id: str
-    title: str
-    container_name: str
-    exit_code: Optional[str] = None
-    severity: str
-    status: str
-    logs: Optional[str] = None
-    incident_type: Optional[str] = None
-    agent_reasoning: Optional[str] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    id:                str
+    title:             str
+    target:            str
+    severity:          str
+    status:            str
+    source_type:       str = "container"
+    container_runtime: Optional[str] = "docker"
+    logs:              Optional[str] = None
+    server_name:       Optional[str] = None
+    incident_type:     Optional[str] = None
+    agent_reasoning:   Optional[str] = None
+    resolved_at:       Optional[datetime] = None
+    metrics_snapshot:  Optional[dict] = None
+    created_at:        datetime
+    updated_at:        Optional[datetime] = None
