@@ -34,13 +34,14 @@ def run_langgraph_engine(
     logs: str,
     severity: str,
     title: str,
+    labels: dict | None = None,
 ) -> None:
     """
     Lanza el pipeline multiagente para un incidente.
     Diseñado para ejecutarse como BackgroundTask de FastAPI.
 
-    Firma mantenida por compatibilidad con los routers; por dentro delega
-    al Supervisor, que a su vez enruta al DomainAgent correcto (hoy: Docker).
+    `labels` lleva metadatos de routing, ej: {"container_runtime": "podman"}.
+    El Supervisor los pasa al DomainAgent para que matches() funcione.
     """
     ctx = IncidentContext(
         incident_id=incident_id,
@@ -48,6 +49,6 @@ def run_langgraph_engine(
         target=container_name,
         severity=severity,
         logs=logs or "",
-        labels={},  # reservado: en el futuro, alerts.py pasará labels completos
+        labels=labels or {},
     )
     run_triage(ctx)

@@ -62,6 +62,23 @@ function IncidentTypeBadge({ type }) {
   )
 }
 
+const RUNTIME_CONFIG = {
+  docker:   { label: 'docker',   className: 'bg-blue-900/40 text-blue-400' },
+  podman:   { label: 'podman',   className: 'bg-purple-900/40 text-purple-400' },
+  database: { label: 'database', className: 'bg-amber-900/40 text-amber-400' },
+}
+
+function RuntimeBadge({ runtime, sourceType }) {
+  const key = sourceType === 'database' ? 'database' : runtime
+  const config = RUNTIME_CONFIG[key]
+  if (!config) return null
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono ${config.className}`}>
+      {config.label}
+    </span>
+  )
+}
+
 function formatDate(dateStr) {
   if (!dateStr) return '—'
   return new Date(dateStr).toLocaleString('es-CO', {
@@ -289,13 +306,14 @@ export default function Dashboard() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-slate-200 leading-snug truncate">{incident.title}</p>
                       <p className="text-xs text-slate-500 mt-1 truncate">
-                        {incident.container_name}
+                        {incident.target}
                         {incident.server_name ? ` · ${incident.server_name}` : ''}
                       </p>
                       <div className="flex items-center gap-2 mt-2">
                         <SeverityBadge severity={incident.severity} />
                         <StatusBadge status={incident.status} />
                         <IncidentTypeBadge type={incident.incident_type} />
+                        <RuntimeBadge runtime={incident.container_runtime} sourceType={incident.source_type} />
                         <span className="text-xs text-slate-600 ml-auto">
                           {formatDate(incident.created_at)}
                         </span>
@@ -324,7 +342,7 @@ export default function Dashboard() {
 
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
               <div className="grid grid-cols-2 gap-3">
-                <MetaCard label="Contenedor" value={selected.container_name} mono />
+                <MetaCard label="Recurso" value={selected.target} mono />
                 <MetaCard label="Servidor" value={selected.server_name} />
                 <MetaCard label="Detectado" value={formatDate(selected.created_at)} />
                 <MetaCard label="Estado" value={STATUS_CONFIG[selected.status]?.label} />
@@ -334,6 +352,7 @@ export default function Dashboard() {
                 <SeverityBadge severity={selected.severity} />
                 <StatusBadge status={selected.status} />
                 <IncidentTypeBadge type={selected.incident_type} />
+                <RuntimeBadge runtime={selected.container_runtime} sourceType={selected.source_type} />
               </div>
 
               <div>

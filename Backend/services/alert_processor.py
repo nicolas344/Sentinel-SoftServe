@@ -12,50 +12,68 @@ logger = logging.getLogger(__name__)
 LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100")
 
 SEVERITY_MAP = {
-    "ContainerCrashed":           "high",
-    "ContainerOOMKilled":         "critical",
-    "ContainerHighMemory":        "high",
-    "ContainerCPUThrottling":     "medium",
-    "ContainerRestartLoop":       "high",
-    "ContainerUnhealthy":         "high",
-    "ContainerNetworkErrors":     "medium",
-    "ContainerNetworkPacketDrop": "medium",
-    "ContainerDiskPressure":      "high",
-    "ContainerHighSwap":          "medium",
+    # Docker
+    "ContainerCrashed":            "high",
+    "ContainerOOMKilled":          "critical",
+    "ContainerHighMemory":         "high",
+    "ContainerCPUThrottling":      "medium",
+    "ContainerRestartLoop":        "high",
+    "ContainerUnhealthy":          "high",
+    "ContainerNetworkErrors":      "medium",
+    "ContainerNetworkPacketDrop":  "medium",
+    "ContainerDiskPressure":       "high",
+    "ContainerHighSwap":           "medium",
+    # Podman
+    "PodmanContainerCrashed":      "critical",
+    "PodmanContainerOOMKilled":    "critical",
+    "PodmanContainerHighMemory":   "high",
+    "PodmanContainerCPUThrottling": "medium",
+    "PodmanContainerRestartLoop":  "high",
+    "PodmanContainerUnhealthy":    "high",
+    "PodmanContainerNetworkErrors": "medium",
+    "PodmanContainerDiskPressure": "high",
+    # PostgreSQL
+    "PostgresConnectionsExhausted":   "critical",
+    "PostgresLongRunningTransaction":  "high",
+    "PostgresDeadLocks":               "high",
+    "PostgresReplicationLag":          "critical",
+    "PostgresLowCacheHitRatio":        "medium",
+    "PostgresDatabaseSizeGrowth":      "medium",
 }
 
 
-def _has_active_incident(container_name: str) -> bool:
+def _has_active_incident(target: str) -> bool:
     """
-    Verifica si ya existe un incidente activo (detected/investigating) para este contenedor.
-    Usado para deduplicación: evita crear múltiples incidentes por el mismo contenedor
-    cuando varias alertas se disparan en cascada (ej: HighMemory → OOMKilled → Crashed).
+    Verifica si ya existe un incidente activo (detected/investigating) para este target.
+    Evita crear duplicados cuando varias alertas se disparan en cascada.
     """
     try:
         response = (
             supabase.table("incidents")
             .select("id")
-            .eq("container_name", container_name)
+            .eq("target", target)
             .in_("status", ["detected", "investigating"])
             .execute()
         )
         return len(response.data) > 0
     except Exception as e:
-        logger.error(f"Error verificando incidente activo para '{container_name}': {e}")
+        logger.error(f"Error verificando incidente activo para '{target}': {e}")
         return False
 
 
-def _extract_container_id(raw_id: str) -> str:
+def _extract_container_id(raw_id: str, runtime: str = "docker") -> str:
     """
-    Convierte '/docker/abc123def456...' en 'abc123def456' (ID completo).
+    Docker (cAdvisor): '/docker/abc123...' → 'abc123...'
+    Podman (podman-exporter): 'abc123...' → 'abc123...' (sin prefijo)
     """
-    return raw_id.replace("/docker/", "").strip("/")
+    if runtime == "docker":
+        return raw_id.replace("/docker/", "").strip("/")
+    return raw_id.strip()
 
 
 def query_loki_logs(container_id: str, alert_time: datetime, lines: int = 100) -> str:
     """
-    Consulta Loki para obtener los logs del contenedor usando su ID.
-    Promtail etiqueta los logs con container_id=<id_completo>.
+    Consulta Loki para obtener logs del contenedor usando su ID.
     Busca en una ventana de 5 minutos antes del crash.
     """
     if not container_id:
@@ -63,13 +81,13 @@ def query_loki_logs(container_id: str, alert_time: datetime, lines: int = 100) -
 
     try:
         start = alert_time - timedelta(minutes=5)
-        end = alert_time + timedelta(minutes=1)
+        end   = alert_time + timedelta(minutes=1)
 
         params = {
-            "query": f'{{container_id="{container_id}"}}',
-            "start": str(int(start.timestamp() * 1e9)),
-            "end": str(int(end.timestamp() * 1e9)),
-            "limit": lines,
+            "query":     f'{{container_id="{container_id}"}}',
+            "start":     str(int(start.timestamp() * 1e9)),
+            "end":       str(int(end.timestamp() * 1e9)),
+            "limit":     lines,
             "direction": "forward",
         }
 
@@ -109,89 +127,101 @@ def query_loki_logs(container_id: str, alert_time: datetime, lines: int = 100) -
         return ""
 
 
-def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, str]]:
+def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, str, str]]:
     """
     Convierte una alerta de Alertmanager en un incidente de Sentinel.
-    - status 'firing'   → crea incidente, retorna (incident_id, container_name, logs, severity, title)
-    - status 'resolved' → cierra incidentes activos del contenedor, retorna None
+    - status 'firing'   → crea incidente, retorna (incident_id, target, logs, severity, title, container_runtime)
+    - status 'resolved' → cierra incidentes activos del target, retorna None
     """
-    labels = alert.get("labels", {})
+    labels      = alert.get("labels", {})
     annotations = alert.get("annotations", {})
-    status = alert.get("status", "firing")
+    status      = alert.get("status", "firing")
 
     alert_name = labels.get("alertname", "UnknownAlert")
-    severity = labels.get("severity") or SEVERITY_MAP.get(alert_name, "medium")
-    summary = annotations.get("summary", f"Alerta: {alert_name}")
+    severity   = labels.get("severity") or SEVERITY_MAP.get(alert_name, "medium")
+    summary    = annotations.get("summary", f"Alerta: {alert_name}")
 
-    # cAdvisor expone el label 'id' como '/docker/<container_id>'
-    raw_id = labels.get("id", "")
-    container_id = _extract_container_id(raw_id)
-    container_name = labels.get("name") or (container_id[:12] if container_id else "unknown")
+    # Determinar source_type y container_runtime desde los labels de la alerta
+    source_type = labels.get("source_type", "container")
+    container_runtime = labels.get("container_runtime", "docker") if source_type == "container" else None
+
+    # Extraer identificador del target
+    raw_id         = labels.get("id", "")
+    container_id   = _extract_container_id(raw_id, container_runtime or "docker")
+    target         = labels.get("name") or (container_id[:12] if container_id else "unknown")
+
+    # Para incidentes de base de datos el target es "postgres/<datname>"
+    if source_type == "database":
+        datname = labels.get("datname", "unknown")
+        target  = f"postgres/{datname}"
 
     raw_instance = labels.get("instance", "")
-    # 'instance' en cAdvisor local es 'cadvisor:8080' — usamos 'localhost'
     if not raw_instance or raw_instance.startswith("cadvisor"):
         server_name = "localhost"
     else:
         server_name = raw_instance.split(":")[0]
 
     if status == "resolved":
-        _resolve_incident(container_name)
+        _resolve_incident(target)
         return None
 
-    # Timestamp de inicio de la alerta
-    starts_at_str = alert.get("startsAt", "")
     try:
-        alert_time = datetime.fromisoformat(starts_at_str.replace("Z", "+00:00"))
+        alert_time = datetime.fromisoformat(
+            alert.get("startsAt", "").replace("Z", "+00:00")
+        )
     except (ValueError, AttributeError):
         alert_time = datetime.now(tz=timezone.utc)
 
-    logs = query_loki_logs(container_id, alert_time)
+    # Logs desde Loki (solo para contenedores — Postgres no tiene logs en Loki por ahora)
+    logs = ""
+    if source_type == "container" and container_id:
+        logs = query_loki_logs(container_id, alert_time)
 
-    # Deduplicación: si ya hay un incidente activo para este contenedor, no crear otro.
-    # Las inhibit rules de Alertmanager son la primera línea de defensa, pero pueden llegar
-    # alertas en cascada antes de que las inhibiciones entren en efecto.
-    if container_name != "unknown" and _has_active_incident(container_name):
-        logger.info(
-            f"Incidente activo ya existe para '{container_name}' ({alert_name}) — omitiendo duplicado"
-        )
+    if not logs:
+        logs = annotations.get("description") or ""
+
+    if target != "unknown" and _has_active_incident(target):
+        logger.info(f"Incidente activo ya existe para '{target}' ({alert_name}) — omitiendo duplicado")
         return None
 
     incident = {
-        "title": summary,
-        "container_name": container_name,
-        "severity": severity,
-        "status": "detected",
-        "logs": logs if logs else annotations.get("description") or None,
-        "server_name": server_name,
+        "title":             summary,
+        "target":            target,
+        "severity":          severity,
+        "status":            "detected",
+        "source_type":       source_type,
+        "container_runtime": container_runtime,
+        "logs":              logs or None,
+        "server_name":       server_name,
     }
 
     try:
-        response = supabase.table("incidents").insert(incident).execute()
+        response  = supabase.table("incidents").insert(incident).execute()
         incident_id = response.data[0]["id"]
         logger.info(
-            f"Incidente creado — id: {incident_id[:8]}, container: {container_name}, "
-            f"severidad: {severity}, logs: {len(logs)} chars"
+            f"Incidente creado — id: {incident_id[:8]}, target: {target}, "
+            f"source: {source_type}, runtime: {container_runtime}, severidad: {severity}"
         )
-        return (incident_id, container_name, logs, severity, incident["title"])
+        return (incident_id, target, logs, severity, summary, container_runtime or "")
     except Exception as e:
         logger.error(f"Error al crear incidente en Supabase: {e}")
         return None
 
 
-def _resolve_incident(container_name: str):
-    """
-    Marca como 'resolved' todos los incidentes activos de ese contenedor.
-    """
+def _resolve_incident(target: str) -> None:
+    """Marca como 'resolved' todos los incidentes activos de ese target."""
     try:
         response = (
             supabase.table("incidents")
-            .update({"status": "resolved"})
-            .eq("container_name", container_name)
+            .update({
+                "status":      "resolved",
+                "resolved_at": datetime.now(tz=timezone.utc).isoformat(),
+            })
+            .eq("target", target)
             .in_("status", ["detected", "investigating"])
             .execute()
         )
         if response.data:
-            logger.info(f"Incidente resuelto automáticamente — contenedor: {container_name}")
+            logger.info(f"Incidente resuelto automáticamente — target: {target}")
     except Exception as e:
-        logger.error(f"Error resolviendo incidente para '{container_name}': {e}")
+        logger.error(f"Error resolviendo incidente para '{target}': {e}")

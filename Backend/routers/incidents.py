@@ -12,14 +12,23 @@ router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
 
 @router.get("/")
-async def list_incidents(user=Depends(get_current_user)):
-    response = (
-        supabase.table("incidents")
-        .select("*")
-        .order("created_at", desc=True)
-        .execute()
-    )
-    return response.data
+async def list_incidents(
+    source_type:       Optional[str] = None,
+    container_runtime: Optional[str] = None,
+    severity:          Optional[str] = None,
+    status:            Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    q = supabase.table("incidents").select("*")
+    if source_type:
+        q = q.eq("source_type", source_type)
+    if container_runtime:
+        q = q.eq("container_runtime", container_runtime)
+    if severity:
+        q = q.eq("severity", severity)
+    if status:
+        q = q.eq("status", status)
+    return q.order("created_at", desc=True).execute().data
 
 
 @router.get("/{incident_id}")
@@ -51,50 +60,39 @@ async def update_incident_status(
     return response.data
 
 
-
 class CreateIncidentManual(BaseModel):
-    title: str = Field(..., min_length=1, max_length=200)
-    container_name: str = Field(..., min_length=1, max_length=100)
-    severity: Literal["critical", "high", "medium", "low"]
+    title:       str  = Field(..., min_length=1, max_length=200)
+    target:      str  = Field(..., min_length=1, max_length=100)
+    severity:    Literal["critical", "high", "medium", "low"]
+    source_type: Literal["container", "database", "manual"] = "manual"
     description: Optional[str] = Field(default=None, max_length=5000)
-
-
 
 
 @router.post("/", status_code=201)
 async def create_incident(
     body: CreateIncidentManual,
     background_tasks: BackgroundTasks,
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
 ):
     incident_data = {
-        "title": body.title.strip(),
-        "container_name": body.container_name.strip(),
-        "severity": body.severity,
-        "status": "detected",
+        "title":       body.title.strip(),
+        "target":      body.target.strip(),
+        "severity":    body.severity,
+        "status":      "detected",
+        "source_type": body.source_type,
         "incident_type": "manual",
-        "logs": body.description.strip() if body.description else None,
+        "logs":        body.description.strip() if body.description else None,
     }
-    response = supabase.table("incidents").insert(incident_data).execute()
+    response        = supabase.table("incidents").insert(incident_data).execute()
     created_incident = response.data[0]
 
-    # Trigger AI investigation in the background
     background_tasks.add_task(
         run_langgraph_engine,
         incident_id=created_incident["id"],
-        container_name=created_incident["container_name"],
+        container_name=created_incident["target"],
         logs=body.description or "",
         severity=created_incident["severity"],
         title=created_incident["title"],
     )
 
     return created_incident
-
-
-
-
-
-
-
-
-
