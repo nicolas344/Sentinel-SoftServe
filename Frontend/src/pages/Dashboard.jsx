@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useIncidentNotifications } from '../hooks/useIncidentNotifications'
 import CreateIncidentModal from '../components/CreateIncidentModal'
+import AgentReasoningPanel from '../components/AgentReasoningPanel'
 
 const SEVERITY_CONFIG = {
   critical: { label: 'Crítico', dot: 'bg-red-500', badge: 'bg-red-500/15 text-red-400 border border-red-500/25' },
@@ -350,21 +351,17 @@ export default function Dashboard() {
                 )}
               </div>
 
-              {selected.agent_reasoning && (
+              {(selected.agent_reasoning ||
+                selected.status === 'investigating' ||
+                selected.status === 'detected') && (
                 <div>
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
                     Razonamiento del agente
                   </p>
-                  <pre className="bg-slate-900 border border-slate-800 rounded-lg p-4 text-xs text-slate-300 whitespace-pre-wrap max-h-[40rem] overflow-y-auto leading-relaxed font-sans">
-                    {selected.agent_reasoning}
-                  </pre>
-                </div>
-              )}
-
-              {(selected.status === 'investigating' || selected.status === 'detected') && !selected.agent_reasoning && (
-                <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 flex items-center gap-3">
-                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse shrink-0" />
-                  <p className="text-xs text-slate-500">El agente está analizando el incidente...</p>
+                  <AgentReasoningPanel
+                    reasoning={selected.agent_reasoning}
+                    status={selected.status}
+                  />
                 </div>
               )}
             </div>

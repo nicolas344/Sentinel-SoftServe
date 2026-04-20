@@ -6,10 +6,21 @@ services:
     container_name: sentinel-backend
     env_file:
       - ./Backend/.env
+    environment:
+      # Sobreescribe las URLs de localhost del .env con nombres de servicio Docker.
+      # El .env usa localhost (válido para desarrollo local fuera de Docker).
+      # Dentro del container, los servicios son accesibles por su nombre de servicio.
+      CHROMA_HOST: "http://chromadb:8000"
+      LOKI_URL: "http://loki:3100"
+      LANGFUSE_HOST: "http://langfuse:3000"
+      PYTHONDONTWRITEBYTECODE: "1"   # evita __pycache__ en código fuente → no dispara WatchFiles
     ports:
       - "8000:8000"
     volumes:
       - ./Backend:/app
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - backend_env:/app/env        # aísla virtualenv del host → evita WatchFiles storms
+      - chroma_cache:/root/.cache/chroma  # persiste modelo ONNX (~79MB) entre reinicios
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -159,3 +170,5 @@ volumes:
   grafana_data:
   langfuse_data:
   chroma_data:
+  backend_env:
+  chroma_cache:
