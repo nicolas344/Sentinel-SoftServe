@@ -305,7 +305,6 @@ function Timeline({ status }) {
       {steps.map((step, i) => {
         const isDone = i < currentIdx
         const isCurrent = i === currentIdx
-        const isPending = i > currentIdx
         return (
           <div key={step.key} className="flex items-center gap-1">
             <div

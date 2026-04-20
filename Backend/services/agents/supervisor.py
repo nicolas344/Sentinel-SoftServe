@@ -16,13 +16,12 @@ el agente.
 import json
 import logging
 import os
-from typing import Optional
 
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
 from db.supabase_client import supabase
-from services.agents.base import IncidentContext, InvestigationResult, ToolCall
+from services.agents.base import IncidentContext, InvestigationResult
 from services.agents.registry import find_agent_for, list_agents
 
 logger = logging.getLogger(__name__)

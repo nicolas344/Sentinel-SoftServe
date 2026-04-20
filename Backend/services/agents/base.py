@@ -8,7 +8,7 @@ El Supervisor no conoce los detalles — solo invoca esta interfaz.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
 
 @dataclass
