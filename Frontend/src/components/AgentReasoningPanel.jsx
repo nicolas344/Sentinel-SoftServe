@@ -2,7 +2,7 @@
  * AgentReasoningPanel
  *
  * Renderiza el razonamiento del agente como UI "agentic" en vez de <pre> plano:
- *   - Identidad del agente (docker / podman / postgres / …)
+ *   - Identidad del agente (docker / kubernetes / postgres / …)
  *   - Timeline de estado (clasificado → investigando → analizado)
  *   - Chips de tools invocadas
  *   - Contador de incidentes similares recordados
@@ -25,13 +25,13 @@ const AGENT_STYLES = {
     glow: 'from-sky-500/20 to-blue-600/10',
     badge: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
   },
-  podman: {
-    label: 'Podman Agent',
-    subtitle: 'Especialista en Podman / rootless',
-    letter: 'P',
-    ring: 'ring-purple-500/40',
-    glow: 'from-purple-500/20 to-fuchsia-600/10',
-    badge: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+  kubernetes: {
+    label: 'Kubernetes Agent',
+    subtitle: 'Especialista en workloads Kubernetes',
+    letter: 'K',
+    ring: 'ring-cyan-500/40',
+    glow: 'from-cyan-500/20 to-sky-600/10',
+    badge: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
   },
   postgres: {
     label: 'Postgres Agent',
@@ -68,7 +68,7 @@ const SECTION_STYLES = {
 
 /**
  * Parsea el texto markdown del agente y extrae:
- *   - agentName: "docker" / "podman" / "postgres" (si aparece)
+ *   - agentName: "docker" / "kubernetes" / "postgres" (si aparece)
  *   - incidentType: valor de **Tipo detectado:** `oom`
  *   - tools: lista de nombres de tools invocadas
  *   - similarCount: cuántos incidentes similares recordó

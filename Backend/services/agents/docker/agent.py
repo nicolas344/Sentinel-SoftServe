@@ -44,7 +44,7 @@ class DockerAgent(DomainAgent):
         runtime = (ctx.labels.get("container_runtime") or "").lower()
         if runtime == "docker":
             return True
-        if runtime in {"podman", "containerd"}:
+        if runtime in {"kubernetes", "containerd"}:
             return False
         # Default: si hay container_name, asumimos Docker.
         return bool(ctx.target)

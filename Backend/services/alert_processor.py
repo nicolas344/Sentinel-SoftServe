@@ -23,22 +23,19 @@ SEVERITY_MAP = {
     "ContainerNetworkPacketDrop":  "medium",
     "ContainerDiskPressure":       "high",
     "ContainerHighSwap":           "medium",
-    # Podman
-    "PodmanContainerCrashed":      "critical",
-    "PodmanContainerOOMKilled":    "critical",
-    "PodmanContainerHighMemory":   "high",
-    "PodmanContainerCPUThrottling": "medium",
-    "PodmanContainerRestartLoop":  "high",
-    "PodmanContainerUnhealthy":    "high",
-    "PodmanContainerNetworkErrors": "medium",
-    "PodmanContainerDiskPressure": "high",
-    # PostgreSQL
-    "PostgresConnectionsExhausted":   "critical",
-    "PostgresLongRunningTransaction":  "high",
-    "PostgresDeadLocks":               "high",
-    "PostgresReplicationLag":          "critical",
-    "PostgresLowCacheHitRatio":        "medium",
-    "PostgresDatabaseSizeGrowth":      "medium",
+    # Kubernetes (kube-state-metrics) — agente pendiente de implementar
+    # "KubePodCrashLooping":        "critical",
+    # "KubePodOOMKilled":           "critical",
+    # "KubePodNotReady":            "high",
+    # "KubeDeploymentUnavailable":  "high",
+    # "KubeNodeNotReady":           "critical",
+    # PostgreSQL — agente pendiente de implementar 
+    # "PostgresConnectionsExhausted":   "critical",
+    # "PostgresLongRunningTransaction":  "high",
+    # "PostgresDeadLocks":               "high",
+    # "PostgresReplicationLag":          "critical",
+    # "PostgresLowCacheHitRatio":        "medium",
+    # "PostgresDatabaseSizeGrowth":      "medium",
 }
 
 
@@ -64,7 +61,7 @@ def _has_active_incident(target: str) -> bool:
 def _extract_container_id(raw_id: str, runtime: str = "docker") -> str:
     """
     Docker (cAdvisor): '/docker/abc123...' → 'abc123...'
-    Podman (podman-exporter): 'abc123...' → 'abc123...' (sin prefijo)
+    Kubernetes: el target se construye desde namespace/pod (no usa container_id)
     """
     if runtime == "docker":
         return raw_id.replace("/docker/", "").strip("/")

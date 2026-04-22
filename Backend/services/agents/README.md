@@ -1,6 +1,6 @@
 # Framework multiagente de Sentinel
 
-Cada dominio de DevOps (contenedores Docker, Podman, Postgres, CI/CD, ...) tiene su propio agente especializado. El **Supervisor** recibe la alerta, la clasifica, elige al especialista y le delega la investigación.
+Cada dominio de DevOps (contenedores Docker, Kubernetes, Postgres, CI/CD, ...) tiene su propio agente especializado. El **Supervisor** recibe la alerta, la clasifica, elige al especialista y le delega la investigación.
 
 ## Estructura
 

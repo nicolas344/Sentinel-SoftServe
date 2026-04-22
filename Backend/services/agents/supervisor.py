@@ -9,7 +9,7 @@ Responsabilidades:
   5. Crear la traza en LangFuse.
 
 Este módulo NO conoce detalles de ningún dominio. Añadir un dominio nuevo
-(podman, postgres, ...) no requiere tocar este archivo — solo registrar
+(kubernetes, postgres, ...) no requiere tocar este archivo — solo registrar
 el agente.
 """
 

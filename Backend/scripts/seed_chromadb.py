@@ -8,7 +8,7 @@ Ejecutar desde el directorio Backend/:
 Carga los runbooks en colecciones separadas por dominio siguiendo la
 convención del framework multiagente:
     - runbooks-docker   (este script)
-    - runbooks-podman   (seed propio cuando añadamos el agente)
+    - runbooks-kubernetes (seed propio cuando añadamos el agente)
     - runbooks-postgres (seed propio cuando añadamos el agente)
 
 Si la colección ya tenía datos previos, los elimina y recarga desde cero.

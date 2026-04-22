@@ -12,7 +12,7 @@ delega al nuevo framework multiagente en `services.agents`:
                                     ├── consulta memoria episódica
                                     └── persiste resultado
 
-Para añadir un nuevo dominio (podman, postgres, ...) basta con crear
+Para añadir un nuevo dominio (kubernetes, postgres, ...) basta con crear
 `services/agents/<dominio>/agent.py` con un subclass de DomainAgent y
 llamar `register_agent()`. Este archivo no necesita cambios.
 """
@@ -20,7 +20,7 @@ llamar `register_agent()`. Este archivo no necesita cambios.
 import logging
 
 # Importar el paquete agents dispara el auto-registro de todos los dominios
-# (docker, y en el futuro podman, postgres, etc.) en el Registry.
+# (docker, y en el futuro kubernetes, postgres, etc.) en el Registry.
 import services.agents  # noqa: F401
 from services.agents.base import IncidentContext
 from services.agents.supervisor import run_triage
@@ -40,7 +40,7 @@ def run_langgraph_engine(
     Lanza el pipeline multiagente para un incidente.
     Diseñado para ejecutarse como BackgroundTask de FastAPI.
 
-    `labels` lleva metadatos de routing, ej: {"container_runtime": "podman"}.
+    `labels` lleva metadatos de routing, ej: {"container_runtime": "kubernetes"}.
     El Supervisor los pasa al DomainAgent para que matches() funcione.
     """
     ctx = IncidentContext(

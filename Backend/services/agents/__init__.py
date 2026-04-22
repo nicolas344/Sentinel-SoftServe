@@ -1,7 +1,7 @@
 """
 Framework multiagente de Sentinel.
 
-Cada dominio (docker, podman, postgres, ...) vive en su propia carpeta
+Cada dominio (docker, kubernetes, postgres, ...) vive en su propia carpeta
 y se registra en el Registry. El Supervisor enruta cada incidente al
 especialista correcto.
 

@@ -6,7 +6,7 @@ Memoria de los agentes — dos subsistemas sobre ChromaDB:
                   llega un caso similar)
 
 Cada dominio tiene sus propias colecciones:
-  runbooks-docker,  incidents-docker
-  runbooks-podman,  incidents-podman
-  runbooks-postgres, incidents-postgres
+  runbooks-docker,      incidents-docker
+  runbooks-kubernetes,  incidents-kubernetes  (pendiente — ver docs/kubernetes_integration_handoff.md)
+  runbooks-postgres,    incidents-postgres
 """
