@@ -137,6 +137,32 @@ services:
       SALT: sentinel-salt-2024
     restart: unless-stopped
 
+  # ── Base de datos demo para incidentes PostgreSQL ──────────────────────────
+  postgres-demo:
+    image: postgres:15-alpine
+    container_name: sentinel-postgres-demo
+    environment:
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: sentinel123
+      POSTGRES_DB: sentinel_demo
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_demo_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # ── Exporter de métricas PostgreSQL → Prometheus ───────────────────────────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: sentinel-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://sentinel:sentinel123@postgres-demo:5432/sentinel_demo?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      - postgres-demo
+    restart: unless-stopped
+
   # ── Vector DB para RAG (runbooks y conocimiento del agente) ────────────────
   chromadb:
     image: chromadb/chroma:latest
@@ -172,3 +198,4 @@ volumes:
   chroma_data:
   backend_env:
   chroma_cache:
+  postgres_demo_data:

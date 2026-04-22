@@ -179,3 +179,128 @@ groups:
             El contenedor {{ if $labels.name }}{{ $labels.name }}{{ else }}{{ $labels.id }}{{ end }}
             lleva 5 minutos usando el {{ printf "%.0f" $value }}% de su límite de swap.
             Posible presión de memoria sostenida.
+
+# ── PostgreSQL Alerts (postgres-exporter) ────────────────────────────────────
+# Requiere postgres-exporter corriendo y configurado en prometheus.yml.
+# Todas las alertas incluyen source_type: database para que alert_processor
+# construya el target como "postgres/<datname>" y enrute al PostgresAgent.
+  - name: postgres_alerts
+    interval: 15s
+    rules:
+
+      # Conexiones agotadas — más del 90% de max_connections en uso
+      - alert: PostgresConnectionsExhausted
+        expr: >
+          (
+            sum by (datname, instance) (
+              pg_stat_activity_count{datname!="", datname!="template0", datname!="template1"}
+            )
+            /
+            pg_settings_max_connections
+          ) * 100 > 90
+        for: 2m
+        labels:
+          severity: critical
+          source_type: database
+        annotations:
+          summary: >-
+            Conexiones al {{ printf "%.0f" $value }}%: {{ $labels.datname }}
+          description: >-
+            La base de datos {{ $labels.datname }} lleva 2 minutos con el
+            {{ printf "%.0f" $value }}% de sus conexiones en uso.
+            Riesgo de rechazo de nuevas conexiones.
+
+      # Transacción larga — query activa por más de 5 minutos
+      - alert: PostgresLongRunningTransaction
+        expr: >
+          max by (datname, instance) (
+            max_over_time(
+              pg_stat_activity_max_tx_duration{datname!="", datname!="template0", datname!="template1", state="active"}[5m]
+            )
+          ) > 300
+        for: 0m
+        labels:
+          severity: high
+          source_type: database
+        annotations:
+          summary: >-
+            Transacción larga ({{ printf "%.0f" $value }}s): {{ $labels.datname }}
+          description: >-
+            Hay una transacción activa de {{ printf "%.0f" $value }} segundos en
+            {{ $labels.datname }}. Puede estar bloqueando otras operaciones.
+
+      # Deadlocks detectados
+      - alert: PostgresDeadLocks
+        expr: >
+          rate(pg_stat_database_deadlocks{datname!="", datname!="template0", datname!="template1"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: high
+          source_type: database
+        annotations:
+          summary: >-
+            Deadlock detectado: {{ $labels.datname }}
+          description: >-
+            Se detectaron deadlocks en la base de datos {{ $labels.datname }}.
+            Indica transacciones concurrentes con conflictos de lock.
+
+      # Lag de replicación — más de 30 segundos de retraso
+      - alert: PostgresReplicationLag
+        expr: >
+          pg_replication_lag > 30
+        for: 2m
+        labels:
+          severity: critical
+          source_type: database
+        annotations:
+          summary: >-
+            Replication lag: {{ printf "%.0f" $value }}s
+          description: >-
+            La réplica lleva 2 minutos con {{ printf "%.0f" $value }} segundos de lag
+            respecto al primario. Riesgo de pérdida de datos si falla el primario.
+
+      # Cache hit ratio bajo — menos del 90% de lecturas servidas desde cache
+      - alert: PostgresLowCacheHitRatio
+        expr: >
+          (
+            sum by (datname, instance) (
+              rate(pg_stat_database_blks_hit{datname!="", datname!="template0", datname!="template1"}[5m])
+            )
+            /
+            (
+              sum by (datname, instance) (
+                rate(pg_stat_database_blks_hit{datname!="", datname!="template0", datname!="template1"}[5m])
+              )
+              +
+              sum by (datname, instance) (
+                rate(pg_stat_database_blks_read{datname!="", datname!="template0", datname!="template1"}[5m])
+              )
+            )
+          ) * 100 < 90
+        for: 5m
+        labels:
+          severity: medium
+          source_type: database
+        annotations:
+          summary: >-
+            Cache hit ratio {{ printf "%.1f" $value }}%: {{ $labels.datname }}
+          description: >-
+            La base de datos {{ $labels.datname }} lleva 5 minutos con solo
+            el {{ printf "%.1f" $value }}% de lecturas desde cache.
+            Puede indicar queries pesadas o shared_buffers insuficiente.
+
+      # Crecimiento acelerado — la BD crece más de 100MB en 1 hora
+      - alert: PostgresDatabaseSizeGrowth
+        expr: >
+          rate(pg_database_size_bytes{datname!="", datname!="template0", datname!="template1"}[1h])
+          / 1048576 > 100
+        for: 0m
+        labels:
+          severity: medium
+          source_type: database
+        annotations:
+          summary: >-
+            Crecimiento rápido ({{ printf "%.1f" $value }} MB/h): {{ $labels.datname }}
+          description: >-
+            La base de datos {{ $labels.datname }} está creciendo más de 100MB/hora.
+            Posible insert masivo, falta de vacuums o acumulación de dead tuples.

@@ -74,16 +74,20 @@ async def create_incident(
     background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
 ):
+    # container_runtime es None para incidentes de base de datos o manuales
+    container_runtime = "docker" if body.source_type == "container" else None
+
     incident_data = {
-        "title":       body.title.strip(),
-        "target":      body.target.strip(),
-        "severity":    body.severity,
-        "status":      "detected",
-        "source_type": body.source_type,
-        "incident_type": "manual",
-        "logs":        body.description.strip() if body.description else None,
+        "title":             body.title.strip(),
+        "target":            body.target.strip(),
+        "severity":          body.severity,
+        "status":            "detected",
+        "source_type":       body.source_type,
+        "container_runtime": container_runtime,
+        "incident_type":     "manual",
+        "logs":              body.description.strip() if body.description else None,
     }
-    response        = supabase.table("incidents").insert(incident_data).execute()
+    response         = supabase.table("incidents").insert(incident_data).execute()
     created_incident = response.data[0]
 
     background_tasks.add_task(
@@ -93,6 +97,7 @@ async def create_incident(
         logs=body.description or "",
         severity=created_incident["severity"],
         title=created_incident["title"],
+        labels={"source_type": body.source_type, "container_runtime": container_runtime or ""},
     )
 
     return created_incident

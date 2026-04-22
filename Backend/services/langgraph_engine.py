@@ -18,6 +18,7 @@ llamar `register_agent()`. Este archivo no necesita cambios.
 """
 
 import logging
+from typing import Optional
 
 # Importar el paquete agents dispara el auto-registro de todos los dominios
 # (docker, y en el futuro kubernetes, postgres, etc.) en el Registry.
@@ -34,7 +35,7 @@ def run_langgraph_engine(
     logs: str,
     severity: str,
     title: str,
-    labels: dict | None = None,
+    labels: Optional[dict] = None,
 ) -> None:
     """
     Lanza el pipeline multiagente para un incidente.
