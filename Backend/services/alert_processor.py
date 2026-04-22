@@ -29,13 +29,13 @@ SEVERITY_MAP = {
     # "KubePodNotReady":            "high",
     # "KubeDeploymentUnavailable":  "high",
     # "KubeNodeNotReady":           "critical",
-    # PostgreSQL — agente pendiente de implementar 
-    # "PostgresConnectionsExhausted":   "critical",
-    # "PostgresLongRunningTransaction":  "high",
-    # "PostgresDeadLocks":               "high",
-    # "PostgresReplicationLag":          "critical",
-    # "PostgresLowCacheHitRatio":        "medium",
-    # "PostgresDatabaseSizeGrowth":      "medium",
+    # PostgreSQL (postgres-exporter)
+    "PostgresConnectionsExhausted":   "critical",
+    "PostgresLongRunningTransaction":  "high",
+    "PostgresDeadLocks":               "high",
+    "PostgresReplicationLag":          "critical",
+    "PostgresLowCacheHitRatio":        "medium",
+    "PostgresDatabaseSizeGrowth":      "medium",
 }
 
 

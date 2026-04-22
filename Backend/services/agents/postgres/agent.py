@@ -1,11 +1,15 @@
 """
-DockerAgent — especialista en incidentes de contenedores Docker.
+PostgresAgent — especialista en incidentes de bases de datos PostgreSQL.
 
-Sustituye al antiguo lab2_investigation: además de consultar runbooks,
-- Consulta incidentes pasados similares (memoria episódica).
-- Puede invocar tools reales (docker_inspect, logs, stats, ps) cuando necesita
-  evidencia adicional que los logs de Loki no le dan.
-- Persiste el incidente resuelto en la memoria episódica al terminar.
+Maneja alertas generadas por postgres-exporter: conexiones agotadas,
+transacciones largas, deadlocks, lag de replicación, bajo cache hit ratio
+y crecimiento acelerado de la BD.
+
+Usa el mismo patrón ReAct acotado que el DockerAgent:
+- Consulta runbooks y memoria episódica antes de razonar.
+- Puede invocar tools read-only vía psycopg2 para obtener el estado
+  actual de la BD si el contexto del incidente no es suficiente.
+- El target tiene formato 'postgres/<nombre_db>'.
 """
 
 import logging
@@ -22,44 +26,27 @@ from services.agents.base import (
     InvestigationResult,
     ToolCall,
 )
-from services.agents.docker.tools import all_tools
+from services.agents.postgres.tools import all_tools
 from services.agents.registry import register_agent
 
 logger = logging.getLogger(__name__)
 
 _PROMPT_PATH = Path(__file__).parent / "prompt.md"
-_MAX_TOOL_ITERATIONS = 4  # evita loops infinitos del LLM
+_MAX_TOOL_ITERATIONS = 4
 
 
-class DockerAgent(DomainAgent):
-    name = "docker"
+class PostgresAgent(DomainAgent):
+    name = "postgres"
 
     # ── Contrato de DomainAgent ───────────────────────────────────────────────
 
     def matches(self, ctx: IncidentContext) -> bool:
-        """
-        Esta alerta es mía si el runtime indica Docker explícitamente.
-        Excluye kubernetes, bases de datos y cualquier target tipo 'postgres/...'.
-        Docker es el dominio por defecto solo cuando no hay otra pista Y el
-        target no parece una base de datos.
-        """
+        """Este incidente es mío si source_type es 'database' o el target
+        comienza con 'postgres/'."""
         source = (ctx.labels.get("source_type") or "").lower()
         if source == "database":
-            return False
-
-        runtime = (ctx.labels.get("container_runtime") or "").lower()
-        if runtime == "docker":
             return True
-        if runtime in {"kubernetes", "containerd"}:
-            return False
-
-        # Excluir targets que parecen bases de datos
-        target = (ctx.target or "").lower()
-        if target.startswith("postgres/") or target.startswith("mysql/"):
-            return False
-
-        # Default: si hay target, asumimos Docker.
-        return bool(ctx.target)
+        return ctx.target.lower().startswith("postgres/")
 
     def tools(self) -> list[Callable]:
         return all_tools()
@@ -68,21 +55,21 @@ class DockerAgent(DomainAgent):
         try:
             return _PROMPT_PATH.read_text(encoding="utf-8")
         except Exception as e:
-            logger.warning(f"[DockerAgent] No se pudo leer prompt.md: {e}")
-            return "Eres un ingeniero SRE analizando incidentes de Docker."
+            logger.warning(f"[PostgresAgent] No se pudo leer prompt.md: {e}")
+            return "Eres un DBA senior analizando incidentes de PostgreSQL."
 
     def investigate(self, ctx: IncidentContext) -> InvestigationResult:
-        logger.info(f"[DockerAgent] Investigando incidente {ctx.incident_id[:8]}")
+        logger.info(f"[PostgresAgent] Investigando incidente {ctx.incident_id[:8]}")
 
         # 1. Memoria: runbooks + incidentes pasados similares
-        query = f"{ctx.incident_type or ''} {ctx.title} {ctx.logs[:300]}"
+        query = f"{ctx.incident_type or ''} {ctx.title} {ctx.target}"
         runbooks = self.recall_runbooks(query, k=3)
         past_incidents = self.recall_similar_incidents(query, k=3)
 
         # 2. Construye el mensaje de usuario con toda la evidencia
         user_msg = _build_user_message(ctx, runbooks, past_incidents)
 
-        # 3. Loop ReAct manual — bounded, sin dependencias extra de langgraph prebuilt
+        # 3. Loop ReAct acotado
         analysis, tool_calls = self._react_loop(user_msg)
 
         return InvestigationResult(
@@ -94,10 +81,6 @@ class DockerAgent(DomainAgent):
     # ── Interno ───────────────────────────────────────────────────────────────
 
     def _react_loop(self, user_msg: str) -> tuple[str, list[ToolCall]]:
-        """
-        Loop acotado: el LLM puede llamar tools hasta _MAX_TOOL_ITERATIONS veces.
-        Cuando emite una respuesta sin tool_calls, se considera análisis final.
-        """
         tools = self.tools()
         tool_map = {t.name: t for t in tools}
 
@@ -119,10 +102,8 @@ class DockerAgent(DomainAgent):
 
             pending = getattr(response, "tool_calls", None) or []
             if not pending:
-                # No más tools → esta es la respuesta final
                 return (response.content or "").strip(), recorded
 
-            # Si ya gastamos todas las iteraciones, forzamos una respuesta final
             if i == _MAX_TOOL_ITERATIONS:
                 messages.append(HumanMessage(
                     content="Límite de tool calls alcanzado. Redacta el análisis "
@@ -133,7 +114,7 @@ class DockerAgent(DomainAgent):
             for call in pending:
                 tool_name = call.get("name") if isinstance(call, dict) else call.name
                 tool_args = call.get("args", {}) if isinstance(call, dict) else call.args
-                tool_id = call.get("id") if isinstance(call, dict) else call.id
+                tool_id   = call.get("id")   if isinstance(call, dict) else call.id
 
                 tool_fn = tool_map.get(tool_name)
                 if tool_fn is None:
@@ -151,13 +132,19 @@ class DockerAgent(DomainAgent):
                 ))
                 messages.append(ToolMessage(content=str(result), tool_call_id=tool_id))
 
-        # Fallback — no debería llegarse aquí
         final = next((m.content for m in reversed(messages)
                       if isinstance(m, AIMessage) and m.content), "")
         return (final or "(sin análisis)").strip(), recorded
 
 
 # ── Formateo del mensaje de usuario ───────────────────────────────────────────
+
+def _parse_datname(target: str) -> str:
+    """Extrae el nombre de la BD de 'postgres/<nombre_db>'."""
+    if "/" in target:
+        return target.split("/", 1)[1]
+    return target
+
 
 def _build_user_message(
     ctx: IncidentContext,
@@ -185,17 +172,19 @@ def _build_user_message(
     else:
         past_text = "(primer incidente de este tipo en memoria)"
 
-    logs = ctx.logs or "(sin logs disponibles)"
+    datname = _parse_datname(ctx.target)
+    description = ctx.logs or "(sin descripción disponible — usa las tools para obtener métricas actuales)"
 
     return f"""INCIDENTE ACTUAL
 - ID: {ctx.incident_id}
 - Título: {ctx.title}
-- Contenedor: {ctx.target}
+- Base de datos: {datname}
+- Target: {ctx.target}
 - Severidad: {ctx.severity}
 - Tipo clasificado: {ctx.incident_type or 'pendiente'}
 
-LOGS RECIENTES (Loki):
-{logs[:3000]}
+DESCRIPCIÓN / MÉTRICAS DEL INCIDENTE:
+{description[:3000]}
 
 RUNBOOKS RELEVANTES:
 {runbooks_text}
@@ -204,9 +193,10 @@ INCIDENTES PASADOS SIMILARES:
 {past_text}
 
 Analiza el incidente con el formato markdown que te indicó el sistema. Si
-necesitas más evidencia del estado actual del contenedor, usa tus tools."""
+necesitas métricas actuales de la BD, usa tus tools (pg_stat_activity,
+pg_stat_database, pg_stat_replication, pg_locks) filtrando por datname='{datname}'."""
 
 
 # ── Auto-registro ─────────────────────────────────────────────────────────────
 
-register_agent(DockerAgent())
+register_agent(PostgresAgent())
