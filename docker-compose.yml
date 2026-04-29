@@ -18,7 +18,8 @@ services:
       - "8000:8000"
     volumes:
       - ./Backend:/app
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Needed for /api/execute-action to restart/log containers via Docker CLI.
+      - /var/run/docker.sock:/var/run/docker.sock:rw
       - backend_env:/app/env        # aísla virtualenv del host → evita WatchFiles storms
       - chroma_cache:/root/.cache/chroma  # persiste modelo ONNX (~79MB) entre reinicios
     extra_hosts:
