@@ -160,7 +160,11 @@ export default function Dashboard() {
           })
           pushIncidentNotification(payload.new)
         } else if (payload.eventType === 'UPDATE') {
-          setIncidents((prev) => prev.map((i) => (i.id === payload.new.id ? payload.new : i)))
+          setIncidents((prev) =>
+            prev.map((i) =>
+              i.id === payload.new.id ? { ...i, ...payload.new } : i,
+            ),
+          )
           pushIncidentNotification(payload.new)
         } else if (payload.eventType === 'DELETE') {
           setIncidents((prev) => prev.filter((i) => i.id !== payload.old.id))
