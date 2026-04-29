@@ -18,7 +18,7 @@ services:
       - "8000:8000"
     volumes:
       - ./Backend:/app
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /run/docker.sock:/var/run/docker.sock:ro
       - backend_env:/app/env        # aísla virtualenv del host → evita WatchFiles storms
       - chroma_cache:/root/.cache/chroma  # persiste modelo ONNX (~79MB) entre reinicios
     extra_hosts:
@@ -45,17 +45,18 @@ services:
     restart: unless-stopped
 
   # ── Métricas de contenedores Docker ────────────────────────────────────────
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:latest
-    container_name: sentinel-cadvisor
-    privileged: true
-    volumes:
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    ports:
-      - "8080:8080"
-    restart: unless-stopped
+  # cAdvisor deshabilitado: incompatible con Podman en macOS (monta /var/run y /sys del host)
+  # cadvisor:
+  #   image: gcr.io/cadvisor/cadvisor:latest
+  #   container_name: sentinel-cadvisor
+  #   privileged: true
+  #   volumes:
+  #     - /var/run:/var/run:ro
+  #     - /sys:/sys:ro
+  #     - /run/docker.sock:/var/run/docker.sock:ro
+  #   ports:
+  #     - "8082:8080"
+  #   restart: unless-stopped
 
   # ── Recolección de métricas y evaluación de reglas ─────────────────────────
   prometheus:
@@ -71,8 +72,6 @@ services:
       - "--web.enable-lifecycle"
     ports:
       - "9090:9090"
-    depends_on:
-      - cadvisor
     restart: unless-stopped
 
   # ── Enrutamiento de alertas al backend de Sentinel ─────────────────────────
@@ -104,7 +103,7 @@ services:
     image: grafana/promtail:latest
     container_name: sentinel-promtail
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/docker.sock:/var/run/docker.sock
       - ./promtail/promtail-config.yml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
     depends_on:
