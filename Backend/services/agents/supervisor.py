@@ -16,6 +16,7 @@ el agente.
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
@@ -25,6 +26,7 @@ from services.agents.base import IncidentContext, InvestigationResult
 from services.agents.registry import find_agent_for, list_agents
 
 logger = logging.getLogger(__name__)
+_MEMORY_WRITE_TIMEOUT_SEC = 8
 
 # LangFuse — SDK directo, igual que antes
 _langfuse = None
@@ -77,6 +79,8 @@ Responde ÚNICAMENTE con JSON válido:
         model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         temperature=0,
         api_key=os.getenv("OPENAI_API_KEY"),
+        timeout=45,
+        max_retries=1,
         model_kwargs={"response_format": {"type": "json_object"}},
     )
     try:
@@ -127,6 +131,28 @@ def _render_final_reasoning(
         f"_Tools invocadas: {tools_line}. Incidentes similares encontrados: {similar_count}._\n\n"
         f"{result.analysis}"
     )
+
+
+def _build_proposed_action(ctx: IncidentContext, incident_type: str) -> str | None:
+    """
+    Genera una accion segura por defecto para ejecucion bajo aprobacion humana.
+    Solo propone comandos Docker whitelisteados para evitar ejecucion arbitraria.
+    """
+    runtime = (ctx.labels.get("container_runtime") or "").lower()
+    source_type = (ctx.labels.get("source_type") or "container").lower()
+    target = (ctx.target or "").strip()
+
+    if source_type != "container":
+        return None
+    if runtime and runtime != "docker":
+        return None
+    if not target or "/" in target or " " in target:
+        return None
+
+    if incident_type in {"app_crash", "oom", "restart_loop", "dependency_failure", "config_error"}:
+        return f"docker restart {target}"
+
+    return f"docker logs {target}"
 
 
 # ── Punto de entrada ──────────────────────────────────────────────────────────
@@ -186,28 +212,56 @@ def run_triage(ctx: IncidentContext) -> None:
         # 3. Investigación
         result = agent.investigate(ctx)
 
-        # 4. Memoria episódica
-        agent.remember_incident(ctx, result)
-
-        # 5. Persistencia final
+        # 4. Persistencia final
         full_reasoning = _render_final_reasoning(class_reason, incident_type, agent.name, result)
+        proposed_action = _build_proposed_action(ctx, incident_type)
         _update_incident(ctx.incident_id, {
             "status": "analyzed",
             "agent_reasoning": full_reasoning,
         })
 
+        # Pasa a gate de aprobacion cuando hay accion segura propuesta.
+        if proposed_action:
+            _update_incident(ctx.incident_id, {
+                "status": "awaiting_approval",
+                "proposed_action": proposed_action,
+            })
+
+        # 5. Memoria episódica (best-effort, no bloqueante)
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = pool.submit(agent.remember_incident, ctx, result)
+            future.result(timeout=_MEMORY_WRITE_TIMEOUT_SEC)
+            pool.shutdown(wait=False, cancel_futures=True)
+        except FutureTimeoutError:
+            pool.shutdown(wait=False, cancel_futures=True)
+            logger.warning(f"[Supervisor] Timeout guardando memoria para {ctx.incident_id[:8]}; continuo")
+        except Exception as e:
+            pool.shutdown(wait=False, cancel_futures=True)
+            logger.warning(f"[Supervisor] Error guardando memoria para {ctx.incident_id[:8]}: {e}")
+
         if trace:
             trace.update(output={
-                "status": "analyzed",
+                "status": "awaiting_approval" if proposed_action else "analyzed",
                 "agent": agent.name,
                 "tools_used": [tc.name for tc in result.tool_calls],
                 "similar_incidents": len(result.similar_past_incidents),
+                "proposed_action": proposed_action,
             })
 
         logger.info(f"[Supervisor] Triage completado {ctx.incident_id[:8]} por '{agent.name}'")
 
     except Exception as e:
         logger.exception(f"[Supervisor] Fallo en triage de {ctx.incident_id[:8]}")
+        _update_incident(ctx.incident_id, {
+            "status": "failed",
+            "agent_reasoning": (
+                "## Error\n\n"
+                "No se pudo completar la investigación automática. "
+                "Revisa conectividad a servicios (OpenAI/Chroma/LangFuse) y logs del backend."
+            ),
+            "action_error": str(e),
+        })
         if trace:
             trace.update(output={"error": str(e)})
     finally:

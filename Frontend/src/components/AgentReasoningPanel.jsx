@@ -290,21 +290,22 @@ function AgentHeader({ agentName, incidentType, tools, similarCount, status }) {
 }
 
 function Timeline({ status }) {
-  // Status flow: detected → investigating → analyzed → resolved
+  // Status flow: detected → investigating → analyzed → awaiting_approval → executing_solution → (resolved | failed)
   const steps = [
     { key: 'detected', label: 'Detectado' },
     { key: 'investigating', label: 'Investigando' },
     { key: 'analyzed', label: 'Analizado' },
-    { key: 'resolved', label: 'Resuelto' },
+    { key: 'awaiting_approval', label: 'Esperando aprobación' },
+    { key: 'executing_solution', label: 'Ejecutando solución' },
   ]
-  const order = ['detected', 'investigating', 'analyzed', 'resolved']
-  const currentIdx = order.indexOf(status)
+  const currentIdx = steps.findIndex((step) => step.key === status)
+  const reachedTerminal = status === 'resolved' || status === 'failed'
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1 flex-wrap">
       {steps.map((step, i) => {
-        const isDone = i < currentIdx
-        const isCurrent = i === currentIdx
+        const isDone = reachedTerminal ? true : i < currentIdx
+        const isCurrent = !reachedTerminal && i === currentIdx
         return (
           <div key={step.key} className="flex items-center gap-1">
             <div
@@ -331,6 +332,34 @@ function Timeline({ status }) {
           </div>
         )
       })}
+
+      <div className="w-2 h-px bg-slate-800" />
+
+      <div
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-medium transition-colors ${
+          status === 'resolved'
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+            : 'bg-slate-900 border-slate-800 text-slate-600'
+        }`}
+      >
+        <span
+          className={`w-1.5 h-1.5 rounded-full ${status === 'resolved' ? 'bg-emerald-400' : 'bg-slate-700'}`}
+        />
+        Resuelto
+      </div>
+
+      <div
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-medium transition-colors ${
+          status === 'failed'
+            ? 'bg-red-500/10 border-red-500/30 text-red-300'
+            : 'bg-slate-900 border-slate-800 text-slate-600'
+        }`}
+      >
+        <span
+          className={`w-1.5 h-1.5 rounded-full ${status === 'failed' ? 'bg-red-400' : 'bg-slate-700'}`}
+        />
+        Falló
+      </div>
     </div>
   )
 }

@@ -6,7 +6,15 @@ from pydantic import BaseModel
 SourceType   = Literal["container", "database", "manual"]
 RuntimeType  = Literal["docker", "kubernetes"]
 SeverityType = Literal["critical", "high", "medium", "low"]
-StatusType   = Literal["detected", "investigating", "analyzed", "resolved"]
+StatusType   = Literal[
+    "detected",
+    "investigating",
+    "analyzed",
+    "awaiting_approval",
+    "executing_solution",
+    "resolved",
+    "failed",
+]
 
 
 class IncidentCreate(BaseModel):
@@ -37,6 +45,10 @@ class IncidentResponse(BaseModel):
     server_name:       Optional[str] = None
     incident_type:     Optional[str] = None
     agent_reasoning:   Optional[str] = None
+    proposed_action:   Optional[str] = None
+    action_result:     Optional[str] = None
+    action_error:      Optional[str] = None
+    executed_at:       Optional[datetime] = None
     resolved_at:       Optional[datetime] = None
     metrics_snapshot:  Optional[dict] = None
     created_at:        datetime

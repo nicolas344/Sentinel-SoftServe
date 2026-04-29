@@ -41,7 +41,7 @@ SEVERITY_MAP = {
 
 def _has_active_incident(target: str) -> bool:
     """
-    Verifica si ya existe un incidente activo (detected/investigating) para este target.
+    Verifica si ya existe un incidente activo para este target.
     Evita crear duplicados cuando varias alertas se disparan en cascada.
     """
     try:
@@ -49,7 +49,13 @@ def _has_active_incident(target: str) -> bool:
             supabase.table("incidents")
             .select("id")
             .eq("target", target)
-            .in_("status", ["detected", "investigating"])
+            .in_("status", [
+                "detected",
+                "investigating",
+                "analyzed",
+                "awaiting_approval",
+                "executing_solution",
+            ])
             .execute()
         )
         return len(response.data) > 0
@@ -215,7 +221,13 @@ def _resolve_incident(target: str) -> None:
                 "resolved_at": datetime.now(tz=timezone.utc).isoformat(),
             })
             .eq("target", target)
-            .in_("status", ["detected", "investigating"])
+            .in_("status", [
+                "detected",
+                "investigating",
+                "analyzed",
+                "awaiting_approval",
+                "executing_solution",
+            ])
             .execute()
         )
         if response.data:

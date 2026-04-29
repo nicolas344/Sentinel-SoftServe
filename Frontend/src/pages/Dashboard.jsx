@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import { useIncidentNotifications } from '../hooks/useIncidentNotifications'
 import CreateIncidentModal from '../components/CreateIncidentModal'
 import AgentReasoningPanel from '../components/AgentReasoningPanel'
+import { executeIncidentAction } from '../services/incidentActions'
 
 const SEVERITY_CONFIG = {
   critical: { label: 'Crítico', dot: 'bg-red-500', badge: 'bg-red-500/15 text-red-400 border border-red-500/25' },
@@ -17,7 +18,10 @@ const STATUS_CONFIG = {
   detected: { label: 'Detectado', className: 'bg-blue-500/15 text-blue-400' },
   investigating: { label: 'Investigando', className: 'bg-purple-500/15 text-purple-400' },
   analyzed: { label: 'Analizado', className: 'bg-amber-500/15 text-amber-400' },
+  awaiting_approval: { label: 'Esperando aprobación', className: 'bg-cyan-500/15 text-cyan-400' },
+  executing_solution: { label: 'Ejecutando solución', className: 'bg-indigo-500/15 text-indigo-300' },
   resolved: { label: 'Resuelto', className: 'bg-slate-500/15 text-slate-500' },
+  failed: { label: 'Falló', className: 'bg-red-500/15 text-red-400' },
 }
 
 const TYPE_CONFIG = {
@@ -106,6 +110,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [actionError, setActionError] = useState(null)
+  const [actionResponse, setActionResponse] = useState(null)
 
   const selectedIncidentId = searchParams.get('incident')
   const selected = incidents.find((incident) => incident.id === selectedIncidentId) || null
@@ -173,6 +180,12 @@ export default function Dashboard() {
     return () => window.clearInterval(timer)
   }, [refreshSnooze])
 
+  useEffect(() => {
+    setActionLoading(false)
+    setActionError(null)
+    setActionResponse(null)
+  }, [selectedIncidentId])
+
   const openIncident = (incident) => {
     setSearchParams({ incident: incident.id }, { replace: true })
   }
@@ -184,6 +197,25 @@ export default function Dashboard() {
   const handleSignOut = async () => {
     await signOut()
     navigate('/login')
+  }
+
+  const handleApproveAction = async () => {
+    if (!selected?.id || !selected?.proposed_action) return
+
+    setActionLoading(true)
+    setActionError(null)
+
+    try {
+      const response = await executeIncidentAction({
+        incidentId: selected.id,
+        command: selected.proposed_action,
+      })
+      setActionResponse(response)
+    } catch (err) {
+      setActionError(err.message)
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   const criticalCount = incidents.filter(
@@ -355,7 +387,7 @@ export default function Dashboard() {
                 <RuntimeBadge runtime={selected.container_runtime} sourceType={selected.source_type} />
               </div>
 
-              <div>
+              <div id="incident-logs-section">
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
                   Logs del contenedor
                 </p>
@@ -383,6 +415,92 @@ export default function Dashboard() {
                   />
                 </div>
               )}
+
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                  Solución propuesta
+                </p>
+
+                <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">Comando sugerido</p>
+                    <pre className="bg-slate-950 border border-slate-800 rounded-md p-3 text-xs text-sky-300 font-mono overflow-x-auto whitespace-pre-wrap">
+                      {selected.proposed_action || 'Sin acción propuesta automática'}
+                    </pre>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs text-slate-500">Estado actual:</p>
+                    <StatusBadge status={selected.status} />
+                  </div>
+
+                  {selected.status === 'awaiting_approval' && selected.proposed_action && (
+                    <button
+                      onClick={handleApproveAction}
+                      disabled={actionLoading}
+                      className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-md px-4 py-2 text-sm font-medium transition-colors"
+                    >
+                      {actionLoading ? 'Aprobando...' : 'Aprobar'}
+                    </button>
+                  )}
+
+                  {selected.status === 'executing_solution' && (
+                    <div className="inline-flex items-center gap-2 text-xs text-indigo-300">
+                      <span className="w-3 h-3 rounded-full border-2 border-indigo-400/40 border-t-indigo-300 animate-spin" />
+                      Ejecutando comando...
+                    </div>
+                  )}
+
+                  {actionError && selected.status !== 'failed' && (
+                    <p className="text-xs text-red-300 bg-red-500/10 border border-red-500/25 rounded-md px-3 py-2">
+                      {actionError}
+                    </p>
+                  )}
+
+                  {(selected.action_result || actionResponse?.stdout) && (
+                    <div>
+                      <p className="text-xs text-slate-500 mb-1">Resultado (stdout)</p>
+                      <pre className="bg-slate-950 border border-slate-800 rounded-md p-3 text-xs text-emerald-300 font-mono overflow-x-auto whitespace-pre-wrap">
+                        {selected.action_result || actionResponse?.stdout}
+                      </pre>
+                    </div>
+                  )}
+
+                  {(selected.status === 'failed' || actionResponse?.status === 'failed') && (
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Error técnico (stderr)</p>
+                        <pre className="bg-slate-950 border border-red-900/60 rounded-md p-3 text-xs text-red-300 font-mono overflow-x-auto whitespace-pre-wrap">
+                          {selected.action_error || actionResponse?.stderr || actionError || 'Sin detalle técnico'}
+                        </pre>
+                      </div>
+                      <p className="text-sm text-amber-300">
+                        La ejecución automática falló. Se recomienda revisión manual.
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        Se recomienda revisión manual: revisar logs y ejecutar el comando manualmente si aplica.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        {selected.proposed_action && (
+                          <button
+                            onClick={handleApproveAction}
+                            disabled={actionLoading}
+                            className="border border-slate-700 hover:border-slate-500 text-slate-300 rounded-md px-3 py-1.5 text-xs transition-colors disabled:opacity-50"
+                          >
+                            {actionLoading ? 'Reintentando...' : 'Reintentar'}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => document.getElementById('incident-logs-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                          className="border border-slate-700 hover:border-slate-500 text-slate-300 rounded-md px-3 py-1.5 text-xs transition-colors"
+                        >
+                          Ver logs
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         ) : (
