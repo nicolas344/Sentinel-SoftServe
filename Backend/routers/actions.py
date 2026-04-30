@@ -5,6 +5,7 @@ import re
 import shlex
 import subprocess
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -35,7 +36,7 @@ class ExecuteActionResponse(BaseModel):
     exit_code: int
     stdout: str
     stderr: str
-    friendly_message: str | None = None
+    friendly_message: Optional[str] = None
 
 
 # ── Validadores ───────────────────────────────────────────────────────────────
