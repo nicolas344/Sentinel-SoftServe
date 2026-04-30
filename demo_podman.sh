@@ -5,6 +5,7 @@ set -euo pipefail
 
 BACKEND="http://localhost:8000"
 ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1c3p1cGRlY2l0cXpqdXp0cWVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NDM3OTcsImV4cCI6MjA4NzAxOTc5N30.mgpAaQviU-dMWohAPwggO3mOJrcWrUR7WlbwQAcLmIk"
+SERVICE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1c3p1cGRlY2l0cXpqdXp0cWVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTQ0Mzc5NywiZXhwIjoyMDg3MDE5Nzk3fQ.6cPnJBvaEctDVJ1NhUahfbf7xWYK69NlyoT43HkR3MI"
 SUPABASE_URL="https://euszupdecitqzjuztqeo.supabase.co"
 CONTAINER="test-app"
 
@@ -12,9 +13,26 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "  SENTINEL — Demo Podman"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# 0. Asegurar que el contenedor existe y está corriendo
+# 0. Limpiar incidentes activos del target (permite repetir la demo)
 echo ""
-echo "[0/5] Preparando contenedor '$CONTAINER'..."
+echo "[0/5] Limpiando incidentes previos del target..."
+CLOSED=$(curl -s -X PATCH \
+  "$SUPABASE_URL/rest/v1/incidents?target=eq.$CONTAINER&container_runtime=eq.podman&status=in.(detected,investigating,analyzed,awaiting_approval,executing_solution,verifying)" \
+  -H "apikey: $SERVICE_KEY" \
+  -H "Authorization: Bearer $SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Prefer: return=representation" \
+  -d '{"status":"failed","action_error":"[RESET] Cerrado por script de demo"}' \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d))" 2>/dev/null || echo "0")
+if [ "$CLOSED" -gt 0 ]; then
+  echo "    ✓ $CLOSED incidente(s) anterior(es) cerrado(s)"
+else
+  echo "    ✓ Sin incidentes previos"
+fi
+
+# 1. Asegurar que el contenedor existe y está corriendo
+echo ""
+echo "[1/5] Preparando contenedor '$CONTAINER'..."
 if ! podman ps -a --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
   echo "    Creando contenedor de demo..."
   podman run -d --name "$CONTAINER" docker.io/library/nginx:alpine > /dev/null
@@ -22,9 +40,9 @@ fi
 podman start "$CONTAINER" > /dev/null 2>&1 || true
 echo "    ✓ Contenedor corriendo"
 
-# 1. Token
+# 2. Token
 echo ""
-echo "[1/5] Obteniendo token de autenticación..."
+echo "[2/5] Obteniendo token de autenticación..."
 TOKEN=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
   -H "apikey: $ANON_KEY" \
   -H "Content-Type: application/json" \
@@ -32,15 +50,15 @@ TOKEN=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 echo "    ✓ Autenticado"
 
-# 2. Detener el contenedor (crash real)
+# 3. Detener el contenedor (crash real)
 echo ""
-echo "[2/5] Simulando crash — deteniendo '$CONTAINER'..."
+echo "[3/5] Simulando crash — deteniendo '$CONTAINER'..."
 podman stop "$CONTAINER" > /dev/null
 echo "    ✓ Contenedor detenido ($(podman ps -a --filter "name=^${CONTAINER}$" --format '{{.Status}}'))"
 
-# 3. Alerta
+# 4. Alerta
 echo ""
-echo "[3/5] Disparando alerta: PodmanContainerCrashed..."
+echo "[4/5] Disparando alerta: PodmanContainerCrashed..."
 curl -s -X POST "$BACKEND/api/alerts" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
@@ -64,9 +82,9 @@ curl -s -X POST "$BACKEND/api/alerts" \
   }' > /dev/null
 echo "    ✓ Alerta enviada — el agente está investigando..."
 
-# 4. Esperar awaiting_approval (máx 90s)
+# 5. Esperar awaiting_approval (máx 90s)
 echo ""
-echo "[4/5] Esperando análisis del agente..."
+echo "[5/5] Esperando análisis del agente..."
 INCIDENT_ID=""
 for i in $(seq 1 18); do
   sleep 5
@@ -105,9 +123,9 @@ echo "      http://localhost:5173"
 echo ""
 read -r -p "  Presiona ENTER cuando hayas aprobado en el dashboard..."
 
-# 5. Confirmar resolución
+# 6. Confirmar resolución
 echo ""
-echo "[5/5] Verificando resolución..."
+echo "Verificando resolución..."
 for i in $(seq 1 12); do
   sleep 5
   FINAL=$(curl -s "$BACKEND/api/incidents/$INCIDENT_ID" -H "Authorization: Bearer $TOKEN" \

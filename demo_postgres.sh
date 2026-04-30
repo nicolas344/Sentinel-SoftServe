@@ -5,11 +5,30 @@ set -euo pipefail
 
 BACKEND="http://100.118.123.112:8000"
 ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1c3p1cGRlY2l0cXpqdXp0cWVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NDM3OTcsImV4cCI6MjA4NzAxOTc5N30.mgpAaQviU-dMWohAPwggO3mOJrcWrUR7WlbwQAcLmIk"
+SERVICE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1c3p1cGRlY2l0cXpqdXp0cWVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTQ0Mzc5NywiZXhwIjoyMDg3MDE5Nzk3fQ.6cPnJBvaEctDVJ1NhUahfbf7xWYK69NlyoT43HkR3MI"
 SUPABASE_URL="https://euszupdecitqzjuztqeo.supabase.co"
+TARGET="postgres/sentinel_demo"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  SENTINEL — Demo PostgreSQL"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# 0. Limpiar incidentes activos del target (permite repetir la demo)
+echo ""
+echo "[0/4] Limpiando incidentes previos del target..."
+CLOSED=$(curl -s -X PATCH \
+  "$SUPABASE_URL/rest/v1/incidents?target=eq.$TARGET&status=in.(detected,investigating,analyzed,awaiting_approval,executing_solution,verifying)" \
+  -H "apikey: $SERVICE_KEY" \
+  -H "Authorization: Bearer $SERVICE_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Prefer: return=representation" \
+  -d '{"status":"failed","action_error":"[RESET] Cerrado por script de demo"}' \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d))" 2>/dev/null || echo "0")
+if [ "$CLOSED" -gt 0 ]; then
+  echo "    ✓ $CLOSED incidente(s) anterior(es) cerrado(s)"
+else
+  echo "    ✓ Sin incidentes previos"
+fi
 
 # 1. Token
 echo ""
