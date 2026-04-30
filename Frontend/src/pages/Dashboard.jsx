@@ -5,6 +5,8 @@ import { supabase } from '../lib/supabase'
 import { useIncidentNotifications } from '../hooks/useIncidentNotifications'
 import CreateIncidentModal from '../components/CreateIncidentModal'
 import AgentReasoningPanel from '../components/AgentReasoningPanel'
+import RunbookViewer from '../components/RunbookViewer'
+import SimilarIncidentsCard from '../components/SimilarIncidentsCard'
 import { executeIncidentAction } from '../services/incidentActions'
 
 const SEVERITY_CONFIG = {
@@ -423,6 +425,20 @@ export default function Dashboard() {
                       />
                     </div>
                   )}
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      Runbooks relevantes
+                    </p>
+                    <RunbookViewer incidentId={selected.id} />
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      Incidentes similares
+                    </p>
+                    <SimilarIncidentsCard incidentId={selected.id} />
+                  </div>
                 </div>
 
                 {/* Columna derecha: acciones / ejecución (sticky) */}

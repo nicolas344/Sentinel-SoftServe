@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 from auth import get_current_user
 from db.supabase_client import supabase
 from models.incident import IncidentStatusUpdate
+from services.agents.memory.incidents import query_incidents
+from services.agents.memory.runbooks import query_runbooks
 from services.langgraph_engine import run_langgraph_engine
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
@@ -101,3 +103,66 @@ async def create_incident(
     )
 
     return created_incident
+
+
+def _runbook_collection(source_type: str) -> str:
+    return "runbooks-postgres" if source_type == "database" else "runbooks-docker"
+
+
+def _incidents_collection(source_type: str) -> str:
+    return "incidents-postgres" if source_type == "database" else "incidents-docker"
+
+
+def _parse_runbook_title(text: str) -> str:
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("RUNBOOK:"):
+            return line.replace("RUNBOOK:", "").strip()
+    return "Runbook"
+
+
+@router.get("/{incident_id}/runbooks")
+async def get_incident_runbooks(
+    incident_id: str,
+    q: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    response = (
+        supabase.table("incidents")
+        .select("source_type,incident_type,title")
+        .eq("id", incident_id)
+        .single()
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
+
+    incident = response.data
+    collection = _runbook_collection(incident.get("source_type") or "container")
+    query = q or f"{incident.get('incident_type') or 'unknown'} {incident.get('title') or ''}"
+
+    texts = query_runbooks(collection, query.strip(), k=5)
+    return [{"title": _parse_runbook_title(t), "content": t} for t in texts]
+
+
+@router.get("/{incident_id}/similar")
+async def get_similar_incidents(
+    incident_id: str,
+    user=Depends(get_current_user),
+):
+    response = (
+        supabase.table("incidents")
+        .select("source_type,incident_type,title,severity")
+        .eq("id", incident_id)
+        .single()
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
+
+    incident = response.data
+    collection = _incidents_collection(incident.get("source_type") or "container")
+    query = f"{incident.get('incident_type') or 'unknown'} {incident.get('title') or ''}"
+
+    results = query_incidents(collection, query.strip(), k=6)
+    return [r for r in results if r["id"] != incident_id]
