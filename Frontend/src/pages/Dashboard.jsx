@@ -8,6 +8,7 @@ import AgentReasoningPanel from '../components/AgentReasoningPanel'
 import RunbookViewer from '../components/RunbookViewer'
 import SimilarIncidentsCard from '../components/SimilarIncidentsCard'
 import ApprovalModal from '../components/ApprovalModal'
+import IncidentTimeline from '../components/IncidentTimeline'
 import { executeIncidentAction } from '../services/incidentActions'
 
 const SEVERITY_CONFIG = {
@@ -402,6 +403,13 @@ export default function Dashboard() {
               <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-start">
                 {/* Columna izquierda: evidencia + análisis del agente */}
                 <div className="space-y-5 min-w-0">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      Línea de tiempo
+                    </p>
+                    <IncidentTimeline incident={selected} />
+                  </div>
+
                   <div id="incident-logs-section">
                     <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
                       Logs del contenedor
@@ -422,7 +430,7 @@ export default function Dashboard() {
                     selected.status === 'detected') && (
                     <div>
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                        Línea de tiempo y análisis
+                        Análisis del agente
                       </p>
                       <AgentReasoningPanel
                         reasoning={selected.agent_reasoning}
