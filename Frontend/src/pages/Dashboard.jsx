@@ -23,7 +23,8 @@ const STATUS_CONFIG = {
   analyzed: { label: 'Analizado', className: 'bg-amber-500/15 text-amber-400' },
   awaiting_approval: { label: 'Esperando aprobación', className: 'bg-cyan-500/15 text-cyan-400' },
   executing_solution: { label: 'Ejecutando solución', className: 'bg-indigo-500/15 text-indigo-300' },
-  resolved: { label: 'Resuelto', className: 'bg-slate-500/15 text-slate-500' },
+  verifying: { label: 'Verificando', className: 'bg-teal-500/15 text-teal-300' },
+  resolved: { label: 'Resuelto', className: 'bg-emerald-500/15 text-emerald-400' },
   failed: { label: 'Falló', className: 'bg-red-500/15 text-red-400' },
 }
 
@@ -477,6 +478,25 @@ export default function Dashboard() {
                       <div className="inline-flex items-center gap-2 text-xs text-indigo-300">
                         <span className="w-3 h-3 rounded-full border-2 border-indigo-400/40 border-t-indigo-300 animate-spin" />
                         Ejecutando comando...
+                      </div>
+                    )}
+
+                    {selected.status === 'verifying' && (
+                      <div className="bg-teal-500/10 border border-teal-500/25 rounded-md px-3 py-2.5 space-y-1">
+                        <div className="inline-flex items-center gap-2 text-xs text-teal-300">
+                          <span className="w-3 h-3 rounded-full border-2 border-teal-400/40 border-t-teal-300 animate-spin" />
+                          Verificando resolución del servicio...
+                        </div>
+                        <p className="text-xs text-teal-400/60">
+                          El agente está comprobando si el contenedor volvió a estado running.
+                        </p>
+                      </div>
+                    )}
+
+                    {selected.status === 'resolved' && selected.executed_at && (
+                      <div className="inline-flex items-center gap-2 text-xs text-emerald-400">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                        Servicio verificado y recuperado
                       </div>
                     )}
 

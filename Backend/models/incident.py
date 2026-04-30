@@ -12,6 +12,7 @@ StatusType   = Literal[
     "analyzed",
     "awaiting_approval",
     "executing_solution",
+    "verifying",
     "resolved",
     "failed",
 ]

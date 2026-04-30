@@ -298,13 +298,14 @@ function AgentHeader({ agentName, incidentType, tools, similarCount, status }) {
 }
 
 function Timeline({ status }) {
-  // Status flow: detected → investigating → analyzed → awaiting_approval → executing_solution → (resolved | failed)
+  // Status flow: detected → investigating → analyzed → awaiting_approval → executing_solution → verifying → (resolved | failed)
   const steps = [
     { key: 'detected', label: 'Detectado' },
     { key: 'investigating', label: 'Investigando' },
     { key: 'analyzed', label: 'Analizado' },
     { key: 'awaiting_approval', label: 'Esperando aprobación' },
     { key: 'executing_solution', label: 'Ejecutando solución' },
+    { key: 'verifying', label: 'Verificando' },
   ]
   const currentIdx = steps.findIndex((step) => step.key === status)
   const reachedTerminal = status === 'resolved' || status === 'failed'

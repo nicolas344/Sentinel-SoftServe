@@ -3,11 +3,12 @@ import shlex
 import subprocess
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from auth import get_current_user
 from db.supabase_client import supabase
+from services.verification import verify_resolution
 
 router = APIRouter(prefix="/api", tags=["actions"])
 
@@ -53,10 +54,14 @@ def _validate_and_parse_command(command: str) -> list[str]:
 
 
 @router.post("/execute-action", response_model=ExecuteActionResponse)
-async def execute_action(body: ExecuteActionRequest, user=Depends(get_current_user)):
+async def execute_action(
+    body: ExecuteActionRequest,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
+):
     incident_response = (
         supabase.table("incidents")
-        .select("id,status,proposed_action")
+        .select("id,status,proposed_action,target,agent_reasoning,container_runtime")
         .eq("id", body.incident_id)
         .single()
         .execute()
@@ -135,10 +140,37 @@ async def execute_action(body: ExecuteActionRequest, user=Depends(get_current_us
 
     stdout = (completed.stdout or "").strip()
     stderr = (completed.stderr or "").strip()
-    status = "resolved" if completed.returncode == 0 else "failed"
 
+    if completed.returncode == 0:
+        # Comando exitoso → pasamos a 'verifying' mientras el agente verifica salud
+        supabase.table("incidents").update({
+            "status": "verifying",
+            "action_result": stdout,
+            "action_error": stderr,
+            "executed_at": executed_at,
+        }).eq("id", body.incident_id).execute()
+
+        current_reasoning = (incident.get("agent_reasoning") or "").strip()
+        container_runtime = (incident.get("container_runtime") or "docker").lower()
+        background_tasks.add_task(
+            verify_resolution,
+            body.incident_id,
+            incident["target"] if "target" in incident else command_tokens[2],
+            container_runtime,
+            current_reasoning,
+        )
+
+        return ExecuteActionResponse(
+            incident_id=body.incident_id,
+            status="verifying",
+            exit_code=completed.returncode,
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+    # Comando fallido → failed inmediato
     supabase.table("incidents").update({
-        "status": status,
+        "status": "failed",
         "action_result": stdout,
         "action_error": stderr,
         "executed_at": executed_at,
@@ -146,15 +178,11 @@ async def execute_action(body: ExecuteActionRequest, user=Depends(get_current_us
 
     return ExecuteActionResponse(
         incident_id=body.incident_id,
-        status=status,
+        status="failed",
         exit_code=completed.returncode,
         stdout=stdout,
         stderr=stderr,
-        friendly_message=(
-            None
-            if status == "resolved"
-            else "La ejecución automática falló. Se recomienda revisión manual."
-        ),
+        friendly_message="La ejecución automática falló. Se recomienda revisión manual.",
     )
 
 
