@@ -13,12 +13,20 @@ services:
       CHROMA_HOST: "http://chromadb:8000"
       LOKI_URL: "http://loki:3100"
       LANGFUSE_HOST: "http://langfuse:3000"
+      PROMETHEUS_URL: "http://prometheus:9090"
       PYTHONDONTWRITEBYTECODE: "1"   # evita __pycache__ en código fuente → no dispara WatchFiles
+      # Socket de Podman: en Linux rootless el UID suele ser 1000.
+      # Si el host usa un UID diferente, ajustar la ruta del volumen y esta variable.
+      # En macOS (Docker Desktop) este socket no existe y la variable queda sin efecto.
+      PODMAN_HOST: "unix:///run/podman/podman.sock"
     ports:
       - "8000:8000"
     volumes:
       - ./Backend:/app
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      # Socket de Podman (solo disponible en Linux con Podman instalado).
+      # En macOS Docker Desktop este path no existe; Docker Compose lo ignora silenciosamente.
+      - /run/user/1000/podman/podman.sock:/run/podman/podman.sock:rw
       - backend_env:/app/env        # aísla virtualenv del host → evita WatchFiles storms
       - chroma_cache:/root/.cache/chroma  # persiste modelo ONNX (~79MB) entre reinicios
     extra_hosts:
@@ -45,14 +53,19 @@ services:
     restart: unless-stopped
 
   # ── Métricas de contenedores Docker ────────────────────────────────────────
+  # cAdvisor: funciona en macOS (Docker Desktop usa VM Linux, /sys y /var/run
+  # son paths del VM) y en Linux. Podman usa un exporter separado (podman-exporter).
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: sentinel-cadvisor
     privileged: true
     volumes:
-      - /var/run:/var/run:ro
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:rw
       - /sys:/sys:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    command:
+      - --docker_only=true
     ports:
       - "8080:8080"
     restart: unless-stopped
@@ -71,8 +84,6 @@ services:
       - "--web.enable-lifecycle"
     ports:
       - "9090:9090"
-    depends_on:
-      - cadvisor
     restart: unless-stopped
 
   # ── Enrutamiento de alertas al backend de Sentinel ─────────────────────────
@@ -104,7 +115,7 @@ services:
     image: grafana/promtail:latest
     container_name: sentinel-promtail
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /run/docker.sock:/var/run/docker.sock
       - ./promtail/promtail-config.yml:/etc/promtail/config.yml
     command: -config.file=/etc/promtail/config.yml
     depends_on:
@@ -161,6 +172,21 @@ services:
       - "9187:9187"
     depends_on:
       - postgres-demo
+    restart: unless-stopped
+
+  # ── Exporter de métricas Podman → Prometheus ──────────────────────────────
+  # Requiere Podman instalado en el host con el socket rootless activo.
+  # En Linux: systemctl --user enable --now podman.socket
+  # El socket estándar es /run/user/1000/podman/podman.sock (UID 1000).
+  podman-exporter:
+    image: quay.io/navidys/prometheus-podman-exporter:latest
+    container_name: sentinel-podman-exporter
+    environment:
+      PODMAN_URL: "unix:///run/podman/podman.sock"
+    volumes:
+      - /run/user/1000/podman/podman.sock:/run/podman/podman.sock:ro
+    ports:
+      - "9882:9882"
     restart: unless-stopped
 
   # ── Vector DB para RAG (runbooks y conocimiento del agente) ────────────────

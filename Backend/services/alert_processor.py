@@ -23,6 +23,13 @@ SEVERITY_MAP = {
     "ContainerNetworkPacketDrop":  "medium",
     "ContainerDiskPressure":       "high",
     "ContainerHighSwap":           "medium",
+    # Podman (prometheus-podman-exporter)
+    "PodmanContainerCrashed":          "high",
+    "PodmanContainerOOMKilled":        "critical",
+    "PodmanContainerHighMemory":       "high",
+    "PodmanContainerCPUThrottling":    "medium",
+    "PodmanContainerRestartLoop":      "high",
+    "PodmanContainerUnhealthy":        "high",
     # Kubernetes (kube-state-metrics) — agente pendiente de implementar
     # "KubePodCrashLooping":        "critical",
     # "KubePodOOMKilled":           "critical",
@@ -41,7 +48,7 @@ SEVERITY_MAP = {
 
 def _has_active_incident(target: str) -> bool:
     """
-    Verifica si ya existe un incidente activo (detected/investigating) para este target.
+    Verifica si ya existe un incidente activo para este target.
     Evita crear duplicados cuando varias alertas se disparan en cascada.
     """
     try:
@@ -49,7 +56,13 @@ def _has_active_incident(target: str) -> bool:
             supabase.table("incidents")
             .select("id")
             .eq("target", target)
-            .in_("status", ["detected", "investigating"])
+            .in_("status", [
+                "detected",
+                "investigating",
+                "analyzed",
+                "awaiting_approval",
+                "executing_solution",
+            ])
             .execute()
         )
         return len(response.data) > 0
@@ -140,7 +153,13 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
 
     # Determinar source_type y container_runtime desde los labels de la alerta
     source_type = labels.get("source_type", "container")
-    container_runtime = labels.get("container_runtime", "docker") if source_type == "container" else None
+    _runtime_hint = labels.get("container_runtime", "")
+    if source_type != "container":
+        container_runtime = None
+    elif _runtime_hint in {"podman"}:
+        container_runtime = "podman"
+    else:
+        container_runtime = "docker"
 
     # Extraer identificador del target
     raw_id         = labels.get("id", "")
@@ -215,7 +234,13 @@ def _resolve_incident(target: str) -> None:
                 "resolved_at": datetime.now(tz=timezone.utc).isoformat(),
             })
             .eq("target", target)
-            .in_("status", ["detected", "investigating"])
+            .in_("status", [
+                "detected",
+                "investigating",
+                "analyzed",
+                "awaiting_approval",
+                "executing_solution",
+            ])
             .execute()
         )
         if response.data:

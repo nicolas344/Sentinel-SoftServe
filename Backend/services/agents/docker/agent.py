@@ -10,6 +10,7 @@ Sustituye al antiguo lab2_investigation: además de consultar runbooks,
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Callable
 
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 _PROMPT_PATH = Path(__file__).parent / "prompt.md"
 _MAX_TOOL_ITERATIONS = 4  # evita loops infinitos del LLM
+_MEMORY_STAGE_TIMEOUT_SEC = 8
 
 
 class DockerAgent(DomainAgent):
@@ -50,7 +52,7 @@ class DockerAgent(DomainAgent):
         runtime = (ctx.labels.get("container_runtime") or "").lower()
         if runtime == "docker":
             return True
-        if runtime in {"kubernetes", "containerd"}:
+        if runtime in {"podman", "kubernetes", "containerd"}:
             return False
 
         # Excluir targets que parecen bases de datos
@@ -76,8 +78,8 @@ class DockerAgent(DomainAgent):
 
         # 1. Memoria: runbooks + incidentes pasados similares
         query = f"{ctx.incident_type or ''} {ctx.title} {ctx.logs[:300]}"
-        runbooks = self.recall_runbooks(query, k=3)
-        past_incidents = self.recall_similar_incidents(query, k=3)
+        runbooks = self._safe_recall_runbooks(query, k=3)
+        past_incidents = self._safe_recall_incidents(query, k=3)
 
         # 2. Construye el mensaje de usuario con toda la evidencia
         user_msg = _build_user_message(ctx, runbooks, past_incidents)
@@ -90,6 +92,38 @@ class DockerAgent(DomainAgent):
             tool_calls=tool_calls,
             similar_past_incidents=past_incidents,
         )
+
+    def _safe_recall_runbooks(self, query: str, k: int) -> list[str]:
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = pool.submit(self.recall_runbooks, query, k)
+            result = future.result(timeout=_MEMORY_STAGE_TIMEOUT_SEC)
+            pool.shutdown(wait=False, cancel_futures=True)
+            return result
+        except FutureTimeoutError:
+            pool.shutdown(wait=False, cancel_futures=True)
+            logger.warning("[DockerAgent] Timeout consultando runbooks; continuo sin RAG")
+            return []
+        except Exception as e:
+            pool.shutdown(wait=False, cancel_futures=True)
+            logger.warning(f"[DockerAgent] Error consultando runbooks: {e}")
+            return []
+
+    def _safe_recall_incidents(self, query: str, k: int) -> list[dict]:
+        pool = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = pool.submit(self.recall_similar_incidents, query, k)
+            result = future.result(timeout=_MEMORY_STAGE_TIMEOUT_SEC)
+            pool.shutdown(wait=False, cancel_futures=True)
+            return result
+        except FutureTimeoutError:
+            pool.shutdown(wait=False, cancel_futures=True)
+            logger.warning("[DockerAgent] Timeout consultando memoria episodica; continuo sin historico")
+            return []
+        except Exception as e:
+            pool.shutdown(wait=False, cancel_futures=True)
+            logger.warning(f"[DockerAgent] Error consultando memoria episodica: {e}")
+            return []
 
     # ── Interno ───────────────────────────────────────────────────────────────
 
@@ -105,6 +139,8 @@ class DockerAgent(DomainAgent):
             model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             temperature=0,
             api_key=os.getenv("OPENAI_API_KEY"),
+            timeout=45,
+            max_retries=1,
         ).bind_tools(tools)
 
         messages = [

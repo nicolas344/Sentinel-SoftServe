@@ -5,6 +5,12 @@ import { supabase } from '../lib/supabase'
 import { useIncidentNotifications } from '../hooks/useIncidentNotifications'
 import CreateIncidentModal from '../components/CreateIncidentModal'
 import AgentReasoningPanel from '../components/AgentReasoningPanel'
+import RunbookViewer from '../components/RunbookViewer'
+import SimilarIncidentsCard from '../components/SimilarIncidentsCard'
+import ApprovalModal from '../components/ApprovalModal'
+import IncidentTimeline from '../components/IncidentTimeline'
+import MetricsPanel from '../components/MetricsPanel'
+import { executeIncidentAction } from '../services/incidentActions'
 
 const SEVERITY_CONFIG = {
   critical: { label: 'Crítico', dot: 'bg-red-500', badge: 'bg-red-500/15 text-red-400 border border-red-500/25' },
@@ -17,7 +23,11 @@ const STATUS_CONFIG = {
   detected: { label: 'Detectado', className: 'bg-blue-500/15 text-blue-400' },
   investigating: { label: 'Investigando', className: 'bg-purple-500/15 text-purple-400' },
   analyzed: { label: 'Analizado', className: 'bg-amber-500/15 text-amber-400' },
-  resolved: { label: 'Resuelto', className: 'bg-slate-500/15 text-slate-500' },
+  awaiting_approval: { label: 'Esperando aprobación', className: 'bg-cyan-500/15 text-cyan-400' },
+  executing_solution: { label: 'Ejecutando solución', className: 'bg-indigo-500/15 text-indigo-300' },
+  verifying: { label: 'Verificando', className: 'bg-teal-500/15 text-teal-300' },
+  resolved: { label: 'Resuelto', className: 'bg-emerald-500/15 text-emerald-400' },
+  failed: { label: 'Falló', className: 'bg-red-500/15 text-red-400' },
 }
 
 const TYPE_CONFIG = {
@@ -63,8 +73,9 @@ function IncidentTypeBadge({ type }) {
 }
 
 const RUNTIME_CONFIG = {
-  docker:   { label: 'docker',   className: 'bg-blue-900/40 text-blue-400' },
-  kubernetes: { label: 'k8s', className: 'bg-cyan-900/40 text-cyan-400' },
+  docker:     { label: 'docker',  className: 'bg-blue-900/40 text-blue-400' },
+  podman:     { label: 'podman',  className: 'bg-purple-900/40 text-purple-400' },
+  kubernetes: { label: 'k8s',    className: 'bg-cyan-900/40 text-cyan-400' },
   database: { label: 'database', className: 'bg-amber-900/40 text-amber-400' },
 }
 
@@ -98,6 +109,13 @@ function MetaCard({ label, value, mono = false }) {
   )
 }
 
+const DETAIL_TABS = [
+  { id: 'resumen',      label: 'Resumen' },
+  { id: 'evidencia',    label: 'Evidencia' },
+  { id: 'analisis',     label: 'Análisis' },
+  { id: 'conocimiento', label: 'Conocimiento' },
+]
+
 export default function Dashboard() {
   const { user, signOut } = useAuth()
   const navigate = useNavigate()
@@ -106,6 +124,11 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showApprovalModal, setShowApprovalModal] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [actionError, setActionError] = useState(null)
+  const [actionResponse, setActionResponse] = useState(null)
+  const [detailTab, setDetailTab] = useState('resumen')
 
   const selectedIncidentId = searchParams.get('incident')
   const selected = incidents.find((incident) => incident.id === selectedIncidentId) || null
@@ -153,7 +176,11 @@ export default function Dashboard() {
           })
           pushIncidentNotification(payload.new)
         } else if (payload.eventType === 'UPDATE') {
-          setIncidents((prev) => prev.map((i) => (i.id === payload.new.id ? payload.new : i)))
+          setIncidents((prev) =>
+            prev.map((i) =>
+              i.id === payload.new.id ? { ...i, ...payload.new } : i,
+            ),
+          )
           pushIncidentNotification(payload.new)
         } else if (payload.eventType === 'DELETE') {
           setIncidents((prev) => prev.filter((i) => i.id !== payload.old.id))
@@ -173,6 +200,14 @@ export default function Dashboard() {
     return () => window.clearInterval(timer)
   }, [refreshSnooze])
 
+  useEffect(() => {
+    setActionLoading(false)
+    setActionError(null)
+    setActionResponse(null)
+    setShowApprovalModal(false)
+    setDetailTab('resumen')
+  }, [selectedIncidentId])
+
   const openIncident = (incident) => {
     setSearchParams({ incident: incident.id }, { replace: true })
   }
@@ -184,6 +219,25 @@ export default function Dashboard() {
   const handleSignOut = async () => {
     await signOut()
     navigate('/login')
+  }
+
+  const handleApproveAction = async () => {
+    if (!selected?.id || !selected?.proposed_action) return
+
+    setActionLoading(true)
+    setActionError(null)
+
+    try {
+      const response = await executeIncidentAction({
+        incidentId: selected.id,
+        command: selected.proposed_action,
+      })
+      setActionResponse(response)
+    } catch (err) {
+      setActionError(err.message)
+    } finally {
+      setActionLoading(false)
+    }
   }
 
   const criticalCount = incidents.filter(
@@ -329,60 +383,254 @@ export default function Dashboard() {
         {/* Panel de detalle */}
         {selected ? (
           <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="px-6 py-3 border-b border-slate-800 flex items-center justify-between gap-4">
-              <h2 className="text-sm font-medium text-slate-200 truncate">{selected.title}</h2>
-              <button
-                onClick={closeIncidentDetail}
-                className="text-slate-600 hover:text-slate-300 text-xl leading-none shrink-0 transition-colors"
-                aria-label="Cerrar detalle"
-              >
-                ×
-              </button>
-            </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              <div className="grid grid-cols-2 gap-3">
-                <MetaCard label="Recurso" value={selected.target} mono />
-                <MetaCard label="Servidor" value={selected.server_name} />
-                <MetaCard label="Detectado" value={formatDate(selected.created_at)} />
-                <MetaCard label="Estado" value={STATUS_CONFIG[selected.status]?.label} />
+            {/* Cabecera fija: título + metadatos + badges */}
+            <div className="px-6 pt-4 pb-0 border-b border-slate-800 shrink-0">
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div className="min-w-0">
+                  <h2 className="text-sm font-semibold text-slate-100 leading-snug">{selected.title}</h2>
+                  <p className="text-xs text-slate-500 mt-0.5 font-mono truncate">
+                    {selected.target}{selected.server_name ? ` · ${selected.server_name}` : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={closeIncidentDetail}
+                  className="text-slate-600 hover:text-slate-300 text-xl leading-none shrink-0 transition-colors mt-0.5"
+                  aria-label="Cerrar detalle"
+                >
+                  ×
+                </button>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
-                <SeverityBadge severity={selected.severity} />
-                <StatusBadge status={selected.status} />
-                <IncidentTypeBadge type={selected.incident_type} />
-                <RuntimeBadge runtime={selected.container_runtime} sourceType={selected.source_type} />
-              </div>
-
-              <div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                  Logs del contenedor
-                </p>
-                {selected.logs ? (
-                  <pre className="bg-slate-900 border border-slate-800 rounded-lg p-4 text-xs text-slate-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-[30rem] overflow-y-auto leading-relaxed">
-                    {selected.logs}
-                  </pre>
-                ) : (
-                  <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
-                    <p className="text-xs text-slate-600">Sin logs disponibles para este incidente</p>
+              {/* Meta grid + badges en fila */}
+              <div className="flex items-center gap-4 mb-3 flex-wrap">
+                <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                  <span className="text-slate-600">Detectado</span>
+                  <span className="text-slate-300">{formatDate(selected.created_at)}</span>
+                </div>
+                {selected.resolved_at && (
+                  <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                    <span className="text-slate-600">Resuelto</span>
+                    <span className="text-slate-300">{formatDate(selected.resolved_at)}</span>
                   </div>
                 )}
+                <div className="flex items-center gap-2 flex-wrap ml-auto">
+                  <SeverityBadge severity={selected.severity} />
+                  <StatusBadge status={selected.status} />
+                  <IncidentTypeBadge type={selected.incident_type} />
+                  <RuntimeBadge runtime={selected.container_runtime} sourceType={selected.source_type} />
+                </div>
               </div>
 
-              {(selected.agent_reasoning ||
-                selected.status === 'investigating' ||
-                selected.status === 'detected') && (
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                    Razonamiento del agente
-                  </p>
-                  <AgentReasoningPanel
-                    reasoning={selected.agent_reasoning}
-                    status={selected.status}
-                  />
+              {/* Tabs */}
+              <div className="flex gap-0 -mb-px">
+                {DETAIL_TABS.map((tab) => {
+                  const isActive = detailTab === tab.id
+                  const showDot =
+                    tab.id === 'resumen' && selected.status === 'awaiting_approval'
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setDetailTab(tab.id)}
+                      className={`relative px-4 py-2 text-xs font-medium border-b-2 transition-colors ${
+                        isActive
+                          ? 'border-blue-500 text-blue-400'
+                          : 'border-transparent text-slate-500 hover:text-slate-300 hover:border-slate-600'
+                      }`}
+                    >
+                      {tab.label}
+                      {showDot && (
+                        <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-cyan-400" />
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Contenido del tab activo */}
+            <div className="flex-1 overflow-y-auto">
+
+              {/* ── Tab: Resumen ────────────────────────────────────────── */}
+              {detailTab === 'resumen' && (
+                <div className="p-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start h-full">
+
+                  {/* Columna izquierda: timeline */}
+                  <div className="space-y-2 min-w-0">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Línea de tiempo
+                    </p>
+                    <IncidentTimeline incident={selected} />
+                  </div>
+
+                  {/* Columna derecha: acción y ejecución */}
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Acción y ejecución
+                    </p>
+
+                    <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Comando sugerido</p>
+                        <pre className="bg-slate-950 border border-slate-800 rounded-md p-3 text-xs text-sky-300 font-mono overflow-x-auto whitespace-pre-wrap">
+                          {selected.proposed_action || 'Sin acción propuesta automática'}
+                        </pre>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-slate-500">Estado actual:</p>
+                        <StatusBadge status={selected.status} />
+                      </div>
+
+                      {selected.status === 'awaiting_approval' && selected.proposed_action && (
+                        <button
+                          onClick={() => setShowApprovalModal(true)}
+                          className="w-full bg-emerald-600 hover:bg-emerald-500 text-white rounded-md px-4 py-2 text-sm font-medium transition-colors"
+                        >
+                          Revisar y aprobar acción
+                        </button>
+                      )}
+
+                      {selected.status === 'executing_solution' && (
+                        <div className="inline-flex items-center gap-2 text-xs text-indigo-300">
+                          <span className="w-3 h-3 rounded-full border-2 border-indigo-400/40 border-t-indigo-300 animate-spin" />
+                          Ejecutando comando...
+                        </div>
+                      )}
+
+                      {selected.status === 'verifying' && (
+                        <div className="bg-teal-500/10 border border-teal-500/25 rounded-md px-3 py-2.5 space-y-1">
+                          <div className="inline-flex items-center gap-2 text-xs text-teal-300">
+                            <span className="w-3 h-3 rounded-full border-2 border-teal-400/40 border-t-teal-300 animate-spin" />
+                            Verificando resolución del servicio...
+                          </div>
+                          <p className="text-xs text-teal-400/60">
+                            El agente está comprobando si el contenedor volvió a estado running.
+                          </p>
+                        </div>
+                      )}
+
+                      {selected.status === 'resolved' && selected.executed_at && (
+                        <div className="inline-flex items-center gap-2 text-xs text-emerald-400">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                          Servicio verificado y recuperado
+                        </div>
+                      )}
+
+                      {actionError && selected.status !== 'failed' && (
+                        <p className="text-xs text-red-300 bg-red-500/10 border border-red-500/25 rounded-md px-3 py-2">
+                          {actionError}
+                        </p>
+                      )}
+
+                      {(selected.action_result || actionResponse?.stdout) && (
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">Resultado (stdout)</p>
+                          <pre className="bg-slate-950 border border-slate-800 rounded-md p-3 text-xs text-emerald-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                            {selected.action_result || actionResponse?.stdout}
+                          </pre>
+                        </div>
+                      )}
+
+                      {(selected.status === 'failed' || actionResponse?.status === 'failed') && (
+                        <div className="space-y-2">
+                          <div>
+                            <p className="text-xs text-slate-500 mb-1">Error técnico (stderr)</p>
+                            <pre className="bg-slate-950 border border-red-900/60 rounded-md p-3 text-xs text-red-300 font-mono overflow-x-auto whitespace-pre-wrap max-h-36 overflow-y-auto">
+                              {selected.action_error || actionResponse?.stderr || actionError || 'Sin detalle técnico'}
+                            </pre>
+                          </div>
+                          <p className="text-sm text-amber-300">
+                            La ejecución automática falló. Se recomienda revisión manual.
+                          </p>
+                          <div className="flex items-center gap-2">
+                            {selected.proposed_action && (
+                              <button
+                                onClick={handleApproveAction}
+                                disabled={actionLoading}
+                                className="border border-slate-700 hover:border-slate-500 text-slate-300 rounded-md px-3 py-1.5 text-xs transition-colors disabled:opacity-50"
+                              >
+                                {actionLoading ? 'Reintentando...' : 'Reintentar'}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setDetailTab('evidencia')}
+                              className="border border-slate-700 hover:border-slate-500 text-slate-300 rounded-md px-3 py-1.5 text-xs transition-colors"
+                            >
+                              Ver logs →
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
+
+              {/* ── Tab: Evidencia ──────────────────────────────────────── */}
+              {detailTab === 'evidencia' && (
+                <div className="p-6 grid gap-5 lg:grid-cols-2 lg:items-start">
+                  {/* Métricas */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Métricas del servicio
+                    </p>
+                    <MetricsPanel incidentId={selected.id} />
+                  </div>
+
+                  {/* Logs */}
+                  <div className="space-y-2 flex flex-col">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Logs del contenedor
+                    </p>
+                    {selected.logs ? (
+                      <pre className="flex-1 bg-slate-900 border border-slate-800 rounded-lg p-4 text-xs text-slate-300 font-mono overflow-auto whitespace-pre-wrap leading-relaxed" style={{ maxHeight: 'calc(100vh - 280px)' }}>
+                        {selected.logs}
+                      </pre>
+                    ) : (
+                      <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
+                        <p className="text-xs text-slate-600">Sin logs disponibles para este incidente</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Tab: Análisis ───────────────────────────────────────── */}
+              {detailTab === 'analisis' && (
+                <div className="p-6 space-y-2 h-full flex flex-col">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0">
+                    Análisis del agente
+                  </p>
+                  <div className="flex-1 min-h-0">
+                    <AgentReasoningPanel
+                      reasoning={selected.agent_reasoning}
+                      status={selected.status}
+                      fullHeight
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ── Tab: Conocimiento ───────────────────────────────────── */}
+              {detailTab === 'conocimiento' && (
+                <div className="p-6 grid gap-5 lg:grid-cols-2 lg:items-start">
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Runbooks relevantes
+                    </p>
+                    <RunbookViewer incidentId={selected.id} />
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                      Incidentes similares
+                    </p>
+                    <SimilarIncidentsCard incidentId={selected.id} />
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         ) : (
@@ -395,6 +643,29 @@ export default function Dashboard() {
       </div>
 
       {showCreateModal && <CreateIncidentModal onClose={() => setShowCreateModal(false)} />}
+
+      {showApprovalModal && selected && (
+        <ApprovalModal
+          incident={selected}
+          onApprove={async (comment) => {
+            setActionLoading(true)
+            setActionError(null)
+            try {
+              const response = await executeIncidentAction({
+                incidentId: selected.id,
+                command: selected.proposed_action,
+              })
+              setActionResponse(response)
+            } catch (err) {
+              setActionError(err.message)
+              throw err
+            } finally {
+              setActionLoading(false)
+            }
+          }}
+          onClose={() => setShowApprovalModal(false)}
+        />
+      )}
     </div>
   )
 }

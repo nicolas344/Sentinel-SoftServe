@@ -25,6 +25,14 @@ const AGENT_STYLES = {
     glow: 'from-sky-500/20 to-blue-600/10',
     badge: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
   },
+  podman: {
+    label: 'Podman Agent',
+    subtitle: 'Especialista en contenedores Podman',
+    letter: 'P',
+    ring: 'ring-purple-500/40',
+    glow: 'from-purple-500/20 to-violet-600/10',
+    badge: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+  },
   kubernetes: {
     label: 'Kubernetes Agent',
     subtitle: 'Especialista en workloads Kubernetes',
@@ -290,21 +298,23 @@ function AgentHeader({ agentName, incidentType, tools, similarCount, status }) {
 }
 
 function Timeline({ status }) {
-  // Status flow: detected → investigating → analyzed → resolved
+  // Status flow: detected → investigating → analyzed → awaiting_approval → executing_solution → verifying → (resolved | failed)
   const steps = [
     { key: 'detected', label: 'Detectado' },
     { key: 'investigating', label: 'Investigando' },
     { key: 'analyzed', label: 'Analizado' },
-    { key: 'resolved', label: 'Resuelto' },
+    { key: 'awaiting_approval', label: 'Esperando aprobación' },
+    { key: 'executing_solution', label: 'Ejecutando solución' },
+    { key: 'verifying', label: 'Verificando' },
   ]
-  const order = ['detected', 'investigating', 'analyzed', 'resolved']
-  const currentIdx = order.indexOf(status)
+  const currentIdx = steps.findIndex((step) => step.key === status)
+  const reachedTerminal = status === 'resolved' || status === 'failed'
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1 flex-wrap">
       {steps.map((step, i) => {
-        const isDone = i < currentIdx
-        const isCurrent = i === currentIdx
+        const isDone = reachedTerminal ? true : i < currentIdx
+        const isCurrent = !reachedTerminal && i === currentIdx
         return (
           <div key={step.key} className="flex items-center gap-1">
             <div
@@ -331,6 +341,34 @@ function Timeline({ status }) {
           </div>
         )
       })}
+
+      <div className="w-2 h-px bg-slate-800" />
+
+      <div
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-medium transition-colors ${
+          status === 'resolved'
+            ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+            : 'bg-slate-900 border-slate-800 text-slate-600'
+        }`}
+      >
+        <span
+          className={`w-1.5 h-1.5 rounded-full ${status === 'resolved' ? 'bg-emerald-400' : 'bg-slate-700'}`}
+        />
+        Resuelto
+      </div>
+
+      <div
+        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-medium transition-colors ${
+          status === 'failed'
+            ? 'bg-red-500/10 border-red-500/30 text-red-300'
+            : 'bg-slate-900 border-slate-800 text-slate-600'
+        }`}
+      >
+        <span
+          className={`w-1.5 h-1.5 rounded-full ${status === 'failed' ? 'bg-red-400' : 'bg-slate-700'}`}
+        />
+        Falló
+      </div>
     </div>
   )
 }
@@ -506,15 +544,19 @@ function AnalyzingPlaceholder({ phase }) {
 
 // ── Componente principal ─────────────────────────────────────────────────────
 
-export default function AgentReasoningPanel({ reasoning, status }) {
+export default function AgentReasoningPanel({ reasoning, status, fullHeight = false }) {
   const parsed = useMemo(() => parseReasoning(reasoning), [reasoning])
 
   const isThinking = status === 'detected' || status === 'investigating'
 
+  const wrapClass = fullHeight
+    ? 'h-full overflow-y-auto space-y-4'
+    : 'space-y-4'
+
   // 1. Aún no hay nada escrito → skeleton + pasos del pipeline
   if (!reasoning || reasoning.trim() === '') {
     return (
-      <div className="space-y-3">
+      <div className={fullHeight ? 'h-full overflow-y-auto space-y-3' : 'space-y-3'}>
         <Timeline status={status} />
         <AnalyzingPlaceholder phase={status} />
       </div>
@@ -530,7 +572,7 @@ export default function AgentReasoningPanel({ reasoning, status }) {
   const stillInvestigating = isThinking && bodySections.length === 0
 
   return (
-    <div className="space-y-4">
+    <div className={wrapClass}>
       <AgentHeader
         agentName={parsed.agentName}
         incidentType={parsed.incidentType}
@@ -547,7 +589,6 @@ export default function AgentReasoningPanel({ reasoning, status }) {
           {bodySections.map((s, i) => (
             <SectionCard key={`${s.title}-${i}`} title={s.title} body={s.body} index={i} />
           ))}
-          {/* Cursor parpadeante si el agente aún está activo pero ya mostró contenido */}
           {isThinking && (
             <div className="flex items-center gap-2 pl-4 text-slate-500 text-xs">
               <ThinkingDots />
