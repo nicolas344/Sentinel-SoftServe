@@ -156,3 +156,57 @@ async def execute_action(body: ExecuteActionRequest, user=Depends(get_current_us
             else "La ejecución automática falló. Se recomienda revisión manual."
         ),
     )
+
+
+class ActionDecisionRequest(BaseModel):
+    comment: str = Field(default="", max_length=500)
+
+
+def _get_awaiting_incident(incident_id: str):
+    response = (
+        supabase.table("incidents")
+        .select("id,status")
+        .eq("id", incident_id)
+        .single()
+        .execute()
+    )
+    incident = response.data
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
+    if incident.get("status") != "awaiting_approval":
+        raise HTTPException(
+            status_code=409,
+            detail="El incidente no está en estado 'Esperando aprobación'",
+        )
+    return incident
+
+
+@router.post("/incidents/{incident_id}/reject")
+async def reject_action(
+    incident_id: str,
+    body: ActionDecisionRequest,
+    user=Depends(get_current_user),
+):
+    _get_awaiting_incident(incident_id)
+    note = body.comment.strip() or "Acción rechazada por el ingeniero."
+    supabase.table("incidents").update({
+        "status": "failed",
+        "action_error": f"[RECHAZADO] {note}",
+        "executed_at": datetime.now(tz=timezone.utc).isoformat(),
+    }).eq("id", incident_id).execute()
+    return {"incident_id": incident_id, "status": "failed", "note": note}
+
+
+@router.post("/incidents/{incident_id}/postpone")
+async def postpone_action(
+    incident_id: str,
+    body: ActionDecisionRequest,
+    user=Depends(get_current_user),
+):
+    _get_awaiting_incident(incident_id)
+    note = body.comment.strip() or "Acción pospuesta por el ingeniero."
+    supabase.table("incidents").update({
+        "status": "analyzed",
+        "action_error": f"[POSPUESTO] {note}",
+    }).eq("id", incident_id).execute()
+    return {"incident_id": incident_id, "status": "analyzed", "note": note}

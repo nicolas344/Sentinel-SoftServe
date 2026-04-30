@@ -7,6 +7,7 @@ import CreateIncidentModal from '../components/CreateIncidentModal'
 import AgentReasoningPanel from '../components/AgentReasoningPanel'
 import RunbookViewer from '../components/RunbookViewer'
 import SimilarIncidentsCard from '../components/SimilarIncidentsCard'
+import ApprovalModal from '../components/ApprovalModal'
 import { executeIncidentAction } from '../services/incidentActions'
 
 const SEVERITY_CONFIG = {
@@ -112,6 +113,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showApprovalModal, setShowApprovalModal] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [actionError, setActionError] = useState(null)
   const [actionResponse, setActionResponse] = useState(null)
@@ -190,6 +192,7 @@ export default function Dashboard() {
     setActionLoading(false)
     setActionError(null)
     setActionResponse(null)
+    setShowApprovalModal(false)
   }, [selectedIncidentId])
 
   const openIncident = (incident) => {
@@ -462,11 +465,10 @@ export default function Dashboard() {
 
                     {selected.status === 'awaiting_approval' && selected.proposed_action && (
                       <button
-                        onClick={handleApproveAction}
-                        disabled={actionLoading}
-                        className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-md px-4 py-2 text-sm font-medium transition-colors"
+                        onClick={() => setShowApprovalModal(true)}
+                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white rounded-md px-4 py-2 text-sm font-medium transition-colors"
                       >
-                        {actionLoading ? 'Aprobando...' : 'Aprobar'}
+                        Revisar y aprobar acción
                       </button>
                     )}
 
@@ -544,6 +546,29 @@ export default function Dashboard() {
       </div>
 
       {showCreateModal && <CreateIncidentModal onClose={() => setShowCreateModal(false)} />}
+
+      {showApprovalModal && selected && (
+        <ApprovalModal
+          incident={selected}
+          onApprove={async (comment) => {
+            setActionLoading(true)
+            setActionError(null)
+            try {
+              const response = await executeIncidentAction({
+                incidentId: selected.id,
+                command: selected.proposed_action,
+              })
+              setActionResponse(response)
+            } catch (err) {
+              setActionError(err.message)
+              throw err
+            } finally {
+              setActionLoading(false)
+            }
+          }}
+          onClose={() => setShowApprovalModal(false)}
+        />
+      )}
     </div>
   )
 }
