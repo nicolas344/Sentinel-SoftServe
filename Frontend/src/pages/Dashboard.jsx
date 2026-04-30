@@ -9,6 +9,7 @@ import RunbookViewer from '../components/RunbookViewer'
 import SimilarIncidentsCard from '../components/SimilarIncidentsCard'
 import ApprovalModal from '../components/ApprovalModal'
 import IncidentTimeline from '../components/IncidentTimeline'
+import MetricsPanel from '../components/MetricsPanel'
 import { executeIncidentAction } from '../services/incidentActions'
 
 const SEVERITY_CONFIG = {
@@ -408,6 +409,13 @@ export default function Dashboard() {
                       Línea de tiempo
                     </p>
                     <IncidentTimeline incident={selected} />
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      Métricas del servicio
+                    </p>
+                    <MetricsPanel incidentId={selected.id} />
                   </div>
 
                   <div id="incident-logs-section">
