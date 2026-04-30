@@ -1,0 +1,71 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sentinel-ingress
+  namespace: sentinel
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+spec:
+  ingressClassName: nginx
+  rules:
+    # App principal — todo pasa por el frontend (Nginx proxea /api/ al backend)
+    - host: sentinel.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend-svc
+                port:
+                  number: 80
+
+    # Grafana
+    - host: grafana.sentinel.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana-svc
+                port:
+                  number: 3000
+
+    # LangFuse
+    - host: langfuse.sentinel.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: langfuse-svc
+                port:
+                  number: 3000
+
+    # Prometheus
+    - host: prometheus.sentinel.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: prometheus-svc
+                port:
+                  number: 9090
+
+    # Alertmanager
+    - host: alertmanager.sentinel.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: alertmanager-svc
+                port:
+                  number: 9093

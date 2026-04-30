@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langfuse
+  namespace: sentinel
+  labels:
+    app: langfuse
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: langfuse
+  template:
+    metadata:
+      labels:
+        app: langfuse
+    spec:
+      containers:
+        - name: langfuse
+          image: langfuse/langfuse:2
+          ports:
+            - containerPort: 3000
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://langfuse:langfuse@langfuse-db-svc:5432/langfuse"
+            - name: NEXTAUTH_URL
+              value: "http://langfuse.sentinel.local"
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: langfuse-secrets
+                  key: NEXTAUTH_SECRET
+            - name: SALT
+              valueFrom:
+                secretKeyRef:
+                  name: langfuse-secrets
+                  key: SALT
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /api/public/health
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /api/public/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10

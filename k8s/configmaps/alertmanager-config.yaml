@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: sentinel
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+
+    route:
+      group_by: ["alertname", "name"]
+      group_wait: 5s
+      group_interval: 10s
+      repeat_interval: 1h
+      receiver: "sentinel-webhook"
+
+    receivers:
+      - name: "sentinel-webhook"
+        webhook_configs:
+          - url: "http://backend-svc:8000/api/alerts"
+            send_resolved: true
+
+    inhibit_rules:
+      - source_matchers:
+          - alertname = "ContainerOOMKilled"
+        target_matchers:
+          - alertname = "ContainerHighMemory"
+        equal:
+          - name
+
+      - source_matchers:
+          - alertname = "ContainerOOMKilled"
+        target_matchers:
+          - alertname = "ContainerCrashed"
+        equal:
+          - name
+
+      - source_matchers:
+          - alertname = "ContainerCrashed"
+        target_matchers:
+          - alertname =~ "ContainerHighMemory|ContainerRestartLoop|ContainerUnhealthy|ContainerCPUThrottling|ContainerDiskPressure|ContainerHighSwap"
+        equal:
+          - name
+
+      - source_matchers:
+          - alertname = "ContainerRestartLoop"
+        target_matchers:
+          - alertname =~ "ContainerCPUThrottling|ContainerNetworkErrors|ContainerNetworkPacketDrop"
+        equal:
+          - name

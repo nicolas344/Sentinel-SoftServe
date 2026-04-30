@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: sentinel
+  labels:
+    app: promtail
+spec:
+  selector:
+    matchLabels:
+      app: promtail
+  template:
+    metadata:
+      labels:
+        app: promtail
+    spec:
+      serviceAccountName: promtail-sa
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+      containers:
+        - name: promtail
+          image: grafana/promtail:latest
+          args:
+            - "-config.file=/etc/promtail/promtail-config.yml"
+          ports:
+            - containerPort: 9080
+          volumeMounts:
+            - name: promtail-config
+              mountPath: /etc/promtail/promtail-config.yml
+              subPath: promtail-config.yml
+            - name: varlog
+              mountPath: /var/log
+              readOnly: true
+            - name: pods-logs
+              mountPath: /var/log/pods
+              readOnly: true
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+      volumes:
+        - name: promtail-config
+          configMap:
+            name: promtail-config
+        - name: varlog
+          hostPath:
+            path: /var/log
+        - name: pods-logs
+          hostPath:
+            path: /var/log/pods
