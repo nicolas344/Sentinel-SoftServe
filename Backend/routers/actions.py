@@ -387,7 +387,7 @@ async def execute_action(
         return ExecuteActionResponse(
             incident_id=body.incident_id,
             status="verifying",
-            exit_code=completed.returncode,
+            exit_code=exit_code,
             stdout=stdout,
             stderr=stderr,
         )
