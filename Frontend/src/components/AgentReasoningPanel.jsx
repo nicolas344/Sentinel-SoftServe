@@ -544,15 +544,19 @@ function AnalyzingPlaceholder({ phase }) {
 
 // ── Componente principal ─────────────────────────────────────────────────────
 
-export default function AgentReasoningPanel({ reasoning, status }) {
+export default function AgentReasoningPanel({ reasoning, status, fullHeight = false }) {
   const parsed = useMemo(() => parseReasoning(reasoning), [reasoning])
 
   const isThinking = status === 'detected' || status === 'investigating'
 
+  const wrapClass = fullHeight
+    ? 'h-full overflow-y-auto space-y-4'
+    : 'space-y-4'
+
   // 1. Aún no hay nada escrito → skeleton + pasos del pipeline
   if (!reasoning || reasoning.trim() === '') {
     return (
-      <div className="space-y-3">
+      <div className={fullHeight ? 'h-full overflow-y-auto space-y-3' : 'space-y-3'}>
         <Timeline status={status} />
         <AnalyzingPlaceholder phase={status} />
       </div>
@@ -568,7 +572,7 @@ export default function AgentReasoningPanel({ reasoning, status }) {
   const stillInvestigating = isThinking && bodySections.length === 0
 
   return (
-    <div className="space-y-4">
+    <div className={wrapClass}>
       <AgentHeader
         agentName={parsed.agentName}
         incidentType={parsed.incidentType}
@@ -585,7 +589,6 @@ export default function AgentReasoningPanel({ reasoning, status }) {
           {bodySections.map((s, i) => (
             <SectionCard key={`${s.title}-${i}`} title={s.title} body={s.body} index={i} />
           ))}
-          {/* Cursor parpadeante si el agente aún está activo pero ya mostró contenido */}
           {isThinking && (
             <div className="flex items-center gap-2 pl-4 text-slate-500 text-xs">
               <ThinkingDots />

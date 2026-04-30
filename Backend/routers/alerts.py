@@ -44,6 +44,12 @@ async def receive_alertmanager_webhook(
         result = process_prometheus_alert(alert.model_dump())
         if result:
             incident_id, target, logs, severity, title, container_runtime = result
+            labels: dict = {}
+            if container_runtime:
+                labels["container_runtime"] = container_runtime
+            # Propagar source_type para que el supervisor pueda proponer acciones correctas
+            source_type = alert.labels.get("source_type", "container")
+            labels["source_type"] = source_type
             background_tasks.add_task(
                 run_langgraph_engine,
                 incident_id,
@@ -51,7 +57,7 @@ async def receive_alertmanager_webhook(
                 logs,
                 severity,
                 title,
-                labels={"container_runtime": container_runtime} if container_runtime else {},
+                labels=labels,
             )
 
     return {"message": "Alertas procesadas", "count": len(webhook.alerts)}

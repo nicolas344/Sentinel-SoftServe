@@ -136,14 +136,35 @@ def _render_final_reasoning(
 def _build_proposed_action(ctx: IncidentContext, incident_type: str) -> str | None:
     """
     Genera una accion segura por defecto para ejecucion bajo aprobacion humana.
-    Solo propone comandos Docker whitelisteados para evitar ejecucion arbitraria.
+    Soporta comandos Docker whitelisteados y funciones Postgres de solo lectura/cancelacion.
     """
     runtime = (ctx.labels.get("container_runtime") or "").lower()
     source_type = (ctx.labels.get("source_type") or "container").lower()
     target = (ctx.target or "").strip()
 
-    if source_type != "container":
-        return None
+    # ── Incidentes de base de datos (PostgreSQL) ──────────────────────────────
+    if source_type == "database":
+        datname = target.replace("postgres/", "").strip()
+        if not datname or " " in datname or "/" in datname:
+            return None
+        # Terminamos conexiones activas si la BD está saturada o en crash
+        if incident_type in {"app_crash", "dependency_failure", "restart_loop", "memory_pressure"}:
+            return f"pg_terminate_backend {datname}"
+        # Para deadlocks o CPU alta intentamos cancelar queries sin matar la conexión
+        if incident_type in {"cpu_throttling", "network_error"}:
+            return f"pg_cancel_backend {datname}"
+        # En cualquier otro caso, una observación sin efecto secundario
+        return f"pg_stat_activity {datname}"
+
+    # ── Incidentes de contenedor Podman ──────────────────────────────────────
+    if runtime == "podman":
+        if not target or "/" in target or " " in target:
+            return None
+        if incident_type in {"app_crash", "oom", "restart_loop", "dependency_failure", "config_error"}:
+            return f"podman restart {target}"
+        return f"podman logs {target}"
+
+    # ── Incidentes de contenedor Docker ──────────────────────────────────────
     if runtime and runtime != "docker":
         return None
     if not target or "/" in target or " " in target:

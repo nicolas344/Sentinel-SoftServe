@@ -1,3 +1,6 @@
+import json
+import logging
+import os
 import re
 import shlex
 import subprocess
@@ -12,7 +15,13 @@ from services.verification import verify_resolution
 
 router = APIRouter(prefix="/api", tags=["actions"])
 
+logger = logging.getLogger(__name__)
+
 _CONTAINER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
+_PG_DATNAME_RE     = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$")
+
+_PG_ALLOWED_FUNCS    = {"pg_stat_activity", "pg_cancel_backend", "pg_terminate_backend"}
+_PODMAN_ALLOWED_CMDS = {"restart", "logs"}
 
 
 class ExecuteActionRequest(BaseModel):
@@ -29,11 +38,15 @@ class ExecuteActionResponse(BaseModel):
     friendly_message: str | None = None
 
 
-def _validate_and_parse_command(command: str) -> list[str]:
+# ── Validadores ───────────────────────────────────────────────────────────────
+
+def _validate_container_command(command: str) -> list[str]:
     """
     Acepta unicamente:
       - docker restart <container>
       - docker logs <container>
+      - podman restart <container>
+      - podman logs <container>
     """
     try:
         tokens = shlex.split(command.strip())
@@ -43,15 +56,130 @@ def _validate_and_parse_command(command: str) -> list[str]:
     if len(tokens) != 3:
         raise HTTPException(status_code=400, detail="Formato de comando no permitido")
 
-    if tokens[0] != "docker" or tokens[1] not in {"restart", "logs"}:
+    runtime_bin, subcommand, container = tokens
+
+    if runtime_bin not in {"docker", "podman"}:
         raise HTTPException(status_code=400, detail="Comando no permitido")
 
-    container = tokens[2]
+    allowed_cmds = {"restart", "logs"}
+    if subcommand not in allowed_cmds:
+        raise HTTPException(status_code=400, detail=f"Subcomando '{subcommand}' no permitido")
+
     if not _CONTAINER_NAME_RE.match(container):
         raise HTTPException(status_code=400, detail="Nombre de contenedor invalido")
 
     return tokens
 
+
+def _validate_pg_command(command: str) -> tuple[str, str]:
+    """
+    Acepta unicamente:
+      - pg_stat_activity <datname>      (solo lectura — observación)
+      - pg_cancel_backend <datname>     (cancela query activa, conexión sigue viva)
+      - pg_terminate_backend <datname>  (termina todas las conexiones de la BD)
+    Retorna (funcion, datname).
+    """
+    tokens = command.strip().split()
+    if len(tokens) != 2:
+        raise HTTPException(status_code=400, detail="Formato de comando Postgres no permitido")
+
+    func, datname = tokens
+    if func not in _PG_ALLOWED_FUNCS:
+        raise HTTPException(status_code=400, detail=f"Función Postgres no permitida: '{func}'")
+    if not _PG_DATNAME_RE.match(datname):
+        raise HTTPException(status_code=400, detail="Nombre de base de datos inválido")
+
+    return func, datname
+
+
+# ── Ejecutores ────────────────────────────────────────────────────────────────
+
+def _run_pg_command(func: str, datname: str) -> tuple[int, str, str]:
+    """
+    Ejecuta la función Postgres segura contra la BD indicada.
+    Retorna (exit_code, stdout_json, stderr).
+    - pg_stat_activity     → SELECT de pg_stat_activity (lectura)
+    - pg_cancel_backend    → pg_cancel_backend() sobre queries activas
+    - pg_terminate_backend → pg_terminate_backend() sobre todas las conexiones
+    """
+    try:
+        import psycopg2          # type: ignore
+        import psycopg2.extras   # type: ignore
+    except ImportError:
+        return 1, "", "psycopg2 no está instalado en el backend"
+
+    dsn = os.getenv("POSTGRES_DSN")
+    if not dsn:
+        host     = os.getenv("POSTGRES_HOST", "localhost")
+        port     = os.getenv("POSTGRES_PORT", "5432")
+        user     = os.getenv("POSTGRES_USER", "sentinel")
+        password = os.getenv("POSTGRES_PASSWORD", "")
+        db       = os.getenv("POSTGRES_DB", "sentinel_demo")
+        dsn = f"postgresql://{user}:{password}@{host}:{port}/{db}"
+
+    try:
+        conn = psycopg2.connect(dsn, connect_timeout=10)
+        conn.autocommit = True
+    except Exception as e:
+        return 1, "", f"No se pudo conectar a PostgreSQL: {e}"
+
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if func == "pg_stat_activity":
+                cur.execute("""
+                    SELECT pid, usename, state, wait_event_type, wait_event,
+                           EXTRACT(EPOCH FROM (now() - query_start))::int AS duracion_s,
+                           LEFT(query, 200) AS query
+                    FROM pg_stat_activity
+                    WHERE datname = %s AND pid <> pg_backend_pid()
+                    ORDER BY duracion_s DESC NULLS LAST
+                    LIMIT 20
+                """, (datname,))
+                rows = [dict(r) for r in cur.fetchall()]
+                stdout = json.dumps({"datname": datname, "conexiones": rows}, indent=2, default=str)
+
+            elif func == "pg_cancel_backend":
+                cur.execute("""
+                    SELECT pid, pg_cancel_backend(pid) AS cancelado,
+                           LEFT(query, 100) AS query
+                    FROM pg_stat_activity
+                    WHERE datname = %s
+                      AND state = 'active'
+                      AND pid <> pg_backend_pid()
+                """, (datname,))
+                rows = [dict(r) for r in cur.fetchall()]
+                stdout = json.dumps({
+                    "datname": datname,
+                    "queries_canceladas": len([r for r in rows if r.get("cancelado")]),
+                    "detalle": rows,
+                }, indent=2, default=str)
+
+            elif func == "pg_terminate_backend":
+                cur.execute("""
+                    SELECT pid, pg_terminate_backend(pid) AS terminado,
+                           usename, state, LEFT(query, 100) AS query
+                    FROM pg_stat_activity
+                    WHERE datname = %s AND pid <> pg_backend_pid()
+                """, (datname,))
+                rows = [dict(r) for r in cur.fetchall()]
+                stdout = json.dumps({
+                    "datname": datname,
+                    "conexiones_terminadas": len([r for r in rows if r.get("terminado")]),
+                    "detalle": rows,
+                }, indent=2, default=str)
+
+            else:
+                stdout = ""
+
+        return 0, stdout, ""
+
+    except Exception as e:
+        return 1, "", f"Error ejecutando {func}: {e}"
+    finally:
+        conn.close()
+
+
+# ── Endpoint principal ────────────────────────────────────────────────────────
 
 @router.post("/execute-action", response_model=ExecuteActionResponse)
 async def execute_action(
@@ -61,7 +189,7 @@ async def execute_action(
 ):
     incident_response = (
         supabase.table("incidents")
-        .select("id,status,proposed_action,target,agent_reasoning,container_runtime")
+        .select("id,status,proposed_action,target,source_type,agent_reasoning,container_runtime")
         .eq("id", body.incident_id)
         .single()
         .execute()
@@ -89,11 +217,62 @@ async def execute_action(
             detail="El comando no coincide con la accion propuesta del incidente",
         )
 
-    command_tokens = _validate_and_parse_command(requested_command)
+    source_type = (incident.get("source_type") or "container").lower()
+    is_postgres  = requested_command.split()[0] in _PG_ALLOWED_FUNCS or source_type == "database"
 
     supabase.table("incidents").update({"status": "executing_solution"}).eq("id", body.incident_id).execute()
-
     executed_at = datetime.now(tz=timezone.utc).isoformat()
+
+    # ── Rama Postgres ─────────────────────────────────────────────────────────
+    if is_postgres:
+        func, datname = _validate_pg_command(requested_command)
+        logger.info(f"[actions] Ejecutando Postgres: {func}({datname})")
+        exit_code, stdout, stderr = _run_pg_command(func, datname)
+
+        if exit_code == 0:
+            supabase.table("incidents").update({
+                "status": "verifying",
+                "action_result": stdout,
+                "action_error": stderr or None,
+                "executed_at": executed_at,
+            }).eq("id", body.incident_id).execute()
+
+            current_reasoning = (incident.get("agent_reasoning") or "").strip()
+            background_tasks.add_task(
+                verify_resolution,
+                body.incident_id,
+                incident.get("target", f"postgres/{datname}"),
+                "postgres",
+                current_reasoning,
+            )
+
+            return ExecuteActionResponse(
+                incident_id=body.incident_id,
+                status="verifying",
+                exit_code=0,
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+        supabase.table("incidents").update({
+            "status": "failed",
+            "action_result": stdout,
+            "action_error": stderr,
+            "executed_at": executed_at,
+        }).eq("id", body.incident_id).execute()
+
+        return ExecuteActionResponse(
+            incident_id=body.incident_id,
+            status="failed",
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr=stderr,
+            friendly_message="La ejecución Postgres falló. Revisa los logs del backend.",
+        )
+
+    # ── Rama Docker / Podman ─────────────────────────────────────────────────
+    command_tokens = _validate_container_command(requested_command)
+
     try:
         completed = subprocess.run(
             command_tokens,
@@ -142,7 +321,6 @@ async def execute_action(
     stderr = (completed.stderr or "").strip()
 
     if completed.returncode == 0:
-        # Comando exitoso → pasamos a 'verifying' mientras el agente verifica salud
         supabase.table("incidents").update({
             "status": "verifying",
             "action_result": stdout,
@@ -151,7 +329,9 @@ async def execute_action(
         }).eq("id", body.incident_id).execute()
 
         current_reasoning = (incident.get("agent_reasoning") or "").strip()
-        container_runtime = (incident.get("container_runtime") or "docker").lower()
+        # Preferir el runtime del binario ejecutado (docker/podman) sobre el campo del incidente
+        # para que verify_resolution sepa qué socket usar.
+        container_runtime = command_tokens[0]  # "docker" o "podman"
         background_tasks.add_task(
             verify_resolution,
             body.incident_id,

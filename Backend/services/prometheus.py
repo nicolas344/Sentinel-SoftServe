@@ -3,6 +3,11 @@ Consultas a Prometheus para obtener métricas de contenedores y PostgreSQL.
 
 Se usa en el endpoint GET /api/incidents/{id}/metrics (US-06b).
 Si Prometheus no está disponible, todas las funciones retornan None en los campos.
+
+Nota sobre cAdvisor en macOS: las versiones recientes de cAdvisor no exponen el
+label `name` en sus métricas — solo exponen `id` (path completo del contenedor,
+e.g. /docker/abc123...). Por eso _resolve_container_id() convierte el nombre del
+contenedor a su ID completo vía la API de Docker antes de consultar Prometheus.
 """
 
 import logging
@@ -14,6 +19,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
+DOCKER_SOCKET  = "unix:///var/run/docker.sock"
 
 
 def _query(expr: str) -> Optional[float]:
@@ -33,20 +39,49 @@ def _query(expr: str) -> Optional[float]:
         return None
 
 
+def _resolve_container_id(container_name: str) -> Optional[str]:
+    """
+    Convierte el nombre de un contenedor Docker a su ID completo (64 chars).
+    Necesario porque cAdvisor en macOS expone las métricas por id=/docker/<ID>
+    en lugar del label name=<nombre>.
+    Retorna None si el contenedor no existe o Docker no está disponible.
+    """
+    try:
+        import docker  # importación diferida para no bloquear arranque
+        client = docker.from_env()
+        container = client.containers.get(container_name)
+        return container.id
+    except Exception:
+        return None
+
+
+def _container_label(container_name: str) -> str:
+    """
+    Devuelve el selector PromQL correcto para el contenedor dado.
+    - Si el contenedor existe en Docker → id="/docker/<FULL_ID>"
+    - Si no (contenedor ya muerto o hash corto) → name="<container_name>" como fallback
+    """
+    full_id = _resolve_container_id(container_name)
+    if full_id:
+        return f'id="/docker/{full_id}"'
+    # Fallback: intenta con name (funciona si cAdvisor sí exporta ese label)
+    return f'name="{container_name}"'
+
+
 def get_container_metrics(container_name: str) -> dict:
     """
     Métricas en tiempo real de un contenedor Docker/Podman via cAdvisor.
     Retorna siempre un dict con type='container'; los campos pueden ser None
     si el contenedor no existe o Prometheus no está disponible.
     """
-    mem_usage = _query(f'container_memory_usage_bytes{{name="{container_name}"}}')
-    mem_limit = _query(f'container_spec_memory_limit_bytes{{name="{container_name}"}}')
-    cpu_rate  = _query(
-        f'sum(rate(container_cpu_usage_seconds_total{{name="{container_name}"}}[5m]))'
-    )
-    net_in  = _query(f'sum(rate(container_network_receive_bytes_total{{name="{container_name}"}}[5m]))')
-    net_out = _query(f'sum(rate(container_network_transmit_bytes_total{{name="{container_name}"}}[5m]))')
-    restarts = _query(f'changes(container_start_time_seconds{{name="{container_name}"}}[1h])')
+    lbl = _container_label(container_name)
+
+    mem_usage = _query(f'container_memory_usage_bytes{{{lbl}}}')
+    mem_limit = _query(f'container_spec_memory_limit_bytes{{{lbl}}}')
+    cpu_rate  = _query(f'sum(rate(container_cpu_usage_seconds_total{{{lbl}}}[5m]))')
+    net_in    = _query(f'sum(rate(container_network_receive_bytes_total{{{lbl}}}[5m]))')
+    net_out   = _query(f'sum(rate(container_network_transmit_bytes_total{{{lbl}}}[5m]))')
+    restarts  = _query(f'changes(container_start_time_seconds{{{lbl}}}[1h])')
 
     mem_pct = None
     if mem_usage is not None and mem_limit and mem_limit > 0:

@@ -36,13 +36,16 @@ async def list_incidents(
 
 @router.get("/{incident_id}")
 async def get_incident(incident_id: str, user=Depends(get_current_user)):
-    response = (
-        supabase.table("incidents")
-        .select("*")
-        .eq("id", incident_id)
-        .single()
-        .execute()
-    )
+    try:
+        response = (
+            supabase.table("incidents")
+            .select("*")
+            .eq("id", incident_id)
+            .single()
+            .execute()
+        )
+    except Exception:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
     if not response.data:
         raise HTTPException(status_code=404, detail="Incidente no encontrado")
     return response.data
@@ -128,13 +131,16 @@ async def get_incident_runbooks(
     q: Optional[str] = None,
     user=Depends(get_current_user),
 ):
-    response = (
-        supabase.table("incidents")
-        .select("source_type,incident_type,title")
-        .eq("id", incident_id)
-        .single()
-        .execute()
-    )
+    try:
+        response = (
+            supabase.table("incidents")
+            .select("source_type,incident_type,title")
+            .eq("id", incident_id)
+            .single()
+            .execute()
+        )
+    except Exception:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
     if not response.data:
         raise HTTPException(status_code=404, detail="Incidente no encontrado")
 
@@ -151,13 +157,16 @@ async def get_similar_incidents(
     incident_id: str,
     user=Depends(get_current_user),
 ):
-    response = (
-        supabase.table("incidents")
-        .select("source_type,incident_type,title,severity")
-        .eq("id", incident_id)
-        .single()
-        .execute()
-    )
+    try:
+        response = (
+            supabase.table("incidents")
+            .select("source_type,incident_type,title,severity")
+            .eq("id", incident_id)
+            .single()
+            .execute()
+        )
+    except Exception:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
     if not response.data:
         raise HTTPException(status_code=404, detail="Incidente no encontrado")
 
@@ -171,13 +180,16 @@ async def get_similar_incidents(
 
 @router.get("/{incident_id}/metrics")
 async def get_incident_metrics(incident_id: str, user=Depends(get_current_user)):
-    response = (
-        supabase.table("incidents")
-        .select("target,source_type,metrics_snapshot")
-        .eq("id", incident_id)
-        .single()
-        .execute()
-    )
+    try:
+        response = (
+            supabase.table("incidents")
+            .select("target,source_type,metrics_snapshot")
+            .eq("id", incident_id)
+            .single()
+            .execute()
+        )
+    except Exception:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
     if not response.data:
         raise HTTPException(status_code=404, detail="Incidente no encontrado")
 
