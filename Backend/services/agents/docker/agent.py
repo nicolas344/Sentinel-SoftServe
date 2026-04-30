@@ -52,7 +52,7 @@ class DockerAgent(DomainAgent):
         runtime = (ctx.labels.get("container_runtime") or "").lower()
         if runtime == "docker":
             return True
-        if runtime in {"kubernetes", "containerd"}:
+        if runtime in {"podman", "kubernetes", "containerd"}:
             return False
 
         # Excluir targets que parecen bases de datos

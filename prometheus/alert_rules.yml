@@ -180,6 +180,108 @@ groups:
             lleva 5 minutos usando el {{ printf "%.0f" $value }}% de su límite de swap.
             Posible presión de memoria sostenida.
 
+# ── Podman Alerts (prometheus-podman-exporter) ───────────────────────────────
+# Requiere prometheus-podman-exporter corriendo con acceso al socket de Podman.
+# Todas las alertas incluyen container_runtime: podman para que alert_processor
+# enrute los incidentes al PodmanAgent.
+  - name: podman_container_alerts
+    interval: 10s
+    rules:
+
+      # Contenedor caído — estado exited (4) o stopped (2) de forma inesperada
+      - alert: PodmanContainerCrashed
+        expr: >
+          podman_container_state{name!=""} == 4
+        for: 0m
+        labels:
+          severity: high
+          container_runtime: podman
+        annotations:
+          summary: >-
+            Contenedor Podman caído: {{ $labels.name }}
+          description: >-
+            El contenedor Podman {{ $labels.name }} está en estado exited.
+            Posible crash o fallo inesperado del proceso.
+
+      # OOM Kill — el kernel terminó el contenedor por falta de memoria
+      - alert: PodmanContainerOOMKilled
+        expr: >
+          increase(podman_container_oom_events_total{name!=""}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          container_runtime: podman
+        annotations:
+          summary: >-
+            OOM Kill en contenedor Podman: {{ $labels.name }}
+          description: >-
+            El contenedor Podman {{ $labels.name }} fue terminado por el OOM Killer del kernel.
+            Se registraron {{ printf "%.0f" $value }} evento(s) de OOM en los últimos 5 minutos.
+
+      # Alta memoria — uso supera el 85% del límite configurado
+      - alert: PodmanContainerHighMemory
+        expr: >
+          (
+            podman_container_mem_usage_bytes{name!=""}
+            / podman_container_mem_limit_bytes{name!=""}
+          ) * 100 > 85
+          and podman_container_mem_limit_bytes{name!=""} > 0
+        for: 2m
+        labels:
+          severity: high
+          container_runtime: podman
+        annotations:
+          summary: >-
+            Memoria al {{ printf "%.0f" $value }}% del límite: {{ $labels.name }}
+          description: >-
+            El contenedor Podman {{ $labels.name }} lleva más de 2 minutos usando
+            el {{ printf "%.0f" $value }}% de su límite de memoria. OOM Kill inminente.
+
+      # CPU elevada — uso de CPU supera el 80% sostenido
+      - alert: PodmanContainerCPUThrottling
+        expr: >
+          rate(podman_container_cpu_seconds_total{name!=""}[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: medium
+          container_runtime: podman
+        annotations:
+          summary: >-
+            CPU al {{ printf "%.0f" $value }}%: {{ $labels.name }}
+          description: >-
+            El contenedor Podman {{ $labels.name }} lleva 5 minutos con uso de CPU
+            al {{ printf "%.0f" $value }}%. La aplicación puede estar degradada.
+
+      # Restart loop — el contenedor cambió de estado 3 o más veces en 10 minutos
+      - alert: PodmanContainerRestartLoop
+        expr: >
+          changes(podman_container_state{name!=""}[10m]) >= 3
+        for: 0m
+        labels:
+          severity: high
+          container_runtime: podman
+        annotations:
+          summary: >-
+            Restart loop ({{ printf "%.0f" $value }} cambios de estado): {{ $labels.name }}
+          description: >-
+            El contenedor Podman {{ $labels.name }} cambió de estado {{ printf "%.0f" $value }}
+            veces en los últimos 10 minutos. Posible CrashLoop.
+
+      # Contenedor detenido — estado stopped/paused por tiempo inesperado
+      - alert: PodmanContainerUnhealthy
+        expr: >
+          podman_container_state{name!=""} == 2
+        for: 3m
+        labels:
+          severity: high
+          container_runtime: podman
+        annotations:
+          summary: >-
+            Contenedor Podman detenido: {{ $labels.name }}
+          description: >-
+            El contenedor Podman {{ $labels.name }} lleva más de 3 minutos en estado
+            stopped. Puede indicar un problema de health o fallo al reiniciar.
+
 # ── PostgreSQL Alerts (postgres-exporter) ────────────────────────────────────
 # Requiere postgres-exporter corriendo y configurado en prometheus.yml.
 # Todas las alertas incluyen source_type: database para que alert_processor

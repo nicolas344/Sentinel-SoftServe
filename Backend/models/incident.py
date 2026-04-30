@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel
 
 SourceType   = Literal["container", "database", "manual"]
-RuntimeType  = Literal["docker", "kubernetes"]
+RuntimeType  = Literal["docker", "podman", "kubernetes"]
 SeverityType = Literal["critical", "high", "medium", "low"]
 StatusType   = Literal[
     "detected",

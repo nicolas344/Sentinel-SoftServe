@@ -162,6 +162,21 @@ services:
       - postgres-demo
     restart: unless-stopped
 
+  # ── Exporter de métricas Podman → Prometheus ──────────────────────────────
+  # Requiere Podman instalado en el host con el socket rootless activo.
+  # En Linux: systemctl --user enable --now podman.socket
+  # El socket estándar es /run/user/1000/podman/podman.sock (UID 1000).
+  podman-exporter:
+    image: quay.io/navidys/prometheus-podman-exporter:latest
+    container_name: sentinel-podman-exporter
+    environment:
+      PODMAN_URL: "unix:///run/podman/podman.sock"
+    volumes:
+      - /run/user/1000/podman/podman.sock:/run/podman/podman.sock:ro
+    ports:
+      - "9882:9882"
+    restart: unless-stopped
+
   # ── Vector DB para RAG (runbooks y conocimiento del agente) ────────────────
   chromadb:
     image: chromadb/chroma:latest

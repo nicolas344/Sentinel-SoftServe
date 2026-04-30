@@ -31,3 +31,9 @@ scrape_configs:
     static_configs:
       - targets: ["postgres-exporter:9187"]
     metrics_path: /metrics
+
+  # Métricas de contenedores Podman vía prometheus-podman-exporter
+  - job_name: "podman"
+    static_configs:
+      - targets: ["podman-exporter:9882"]
+    metrics_path: /metrics

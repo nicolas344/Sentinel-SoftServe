@@ -25,6 +25,14 @@ const AGENT_STYLES = {
     glow: 'from-sky-500/20 to-blue-600/10',
     badge: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
   },
+  podman: {
+    label: 'Podman Agent',
+    subtitle: 'Especialista en contenedores Podman',
+    letter: 'P',
+    ring: 'ring-purple-500/40',
+    glow: 'from-purple-500/20 to-violet-600/10',
+    badge: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+  },
   kubernetes: {
     label: 'Kubernetes Agent',
     subtitle: 'Especialista en workloads Kubernetes',

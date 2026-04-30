@@ -70,8 +70,9 @@ function IncidentTypeBadge({ type }) {
 }
 
 const RUNTIME_CONFIG = {
-  docker:   { label: 'docker',   className: 'bg-blue-900/40 text-blue-400' },
-  kubernetes: { label: 'k8s', className: 'bg-cyan-900/40 text-cyan-400' },
+  docker:     { label: 'docker',  className: 'bg-blue-900/40 text-blue-400' },
+  podman:     { label: 'podman',  className: 'bg-purple-900/40 text-purple-400' },
+  kubernetes: { label: 'k8s',    className: 'bg-cyan-900/40 text-cyan-400' },
   database: { label: 'database', className: 'bg-amber-900/40 text-amber-400' },
 }
 

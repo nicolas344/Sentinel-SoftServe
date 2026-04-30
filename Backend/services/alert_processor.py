@@ -23,6 +23,13 @@ SEVERITY_MAP = {
     "ContainerNetworkPacketDrop":  "medium",
     "ContainerDiskPressure":       "high",
     "ContainerHighSwap":           "medium",
+    # Podman (prometheus-podman-exporter)
+    "PodmanContainerCrashed":          "high",
+    "PodmanContainerOOMKilled":        "critical",
+    "PodmanContainerHighMemory":       "high",
+    "PodmanContainerCPUThrottling":    "medium",
+    "PodmanContainerRestartLoop":      "high",
+    "PodmanContainerUnhealthy":        "high",
     # Kubernetes (kube-state-metrics) — agente pendiente de implementar
     # "KubePodCrashLooping":        "critical",
     # "KubePodOOMKilled":           "critical",
@@ -146,7 +153,13 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
 
     # Determinar source_type y container_runtime desde los labels de la alerta
     source_type = labels.get("source_type", "container")
-    container_runtime = labels.get("container_runtime", "docker") if source_type == "container" else None
+    _runtime_hint = labels.get("container_runtime", "")
+    if source_type != "container":
+        container_runtime = None
+    elif _runtime_hint in {"podman"}:
+        container_runtime = "podman"
+    else:
+        container_runtime = "docker"
 
     # Extraer identificador del target
     raw_id         = labels.get("id", "")
