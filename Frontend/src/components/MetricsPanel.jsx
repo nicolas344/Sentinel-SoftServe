@@ -140,7 +140,7 @@ export default function MetricsPanel({ incidentId }) {
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
+    setLoading(true) // eslint-disable-line react-hooks/set-state-in-effect
     setError(null)
     fetchMetrics(incidentId)
       .then((data) => { if (!cancelled) { setMetrics(data); setLoading(false) } })
