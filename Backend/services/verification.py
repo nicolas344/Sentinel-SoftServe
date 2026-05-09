@@ -147,8 +147,8 @@ def _inspect_postgres(datname: str) -> dict:
     Retorna un dict compatible con _render_section para runtime='postgres'.
     """
     try:
-        import psycopg2          # type: ignore
-        import psycopg2.extras   # type: ignore
+        import psycopg2  # type: ignore
+        import psycopg2.extras  # type: ignore
     except ImportError:
         return {
             "healthy": False,
@@ -185,9 +185,12 @@ def _inspect_postgres(datname: str) -> dict:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute("""
                 SELECT
-                    (SELECT count(*) FROM pg_stat_activity WHERE datname = %(dn)s)::int AS connections,
-                    (SELECT setting::int FROM pg_settings WHERE name = 'max_connections')  AS max_connections,
-                    round(pg_database_size(%(dn)s) / 1024.0 / 1024.0, 1)                  AS db_size_mb
+                    (SELECT count(*) FROM pg_stat_activity
+                     WHERE datname = %(dn)s)::int AS connections,
+                    (SELECT setting::int FROM pg_settings
+                     WHERE name = 'max_connections') AS max_connections,
+                    round(pg_database_size(%(dn)s) / 1024.0 / 1024.0, 1)
+                        AS db_size_mb
             """, {"dn": datname})
             row = dict(cur.fetchone())
 
@@ -226,7 +229,9 @@ def _render_container_section(r: dict) -> str:
         summary = "El contenedor volvió a estado `running`. El reinicio fue exitoso."
     else:
         heading = "Verificación de resolución — Servicio no recuperado"
-        summary = f"El contenedor está en estado `{r['status']}` después del reinicio. Requiere atención manual."
+        state = r['status']
+        summary = f"El contenedor está en estado `{state}` después del "
+        summary += "reinicio. Requiere atención manual."
 
     rows = [
         f"| Estado | `{r['status']}` |",
@@ -255,7 +260,9 @@ def _render_postgres_section(r: dict) -> str:
         summary = "La base de datos responde correctamente y acepta conexiones."
     else:
         heading = "Verificación de resolución — PostgreSQL no disponible"
-        summary = f"No se pudo conectar a la base de datos (`{r['status']}`). Requiere atención manual."
+        status = r['status']
+        summary = "No se pudo conectar a la base de datos "
+        summary += f"(`{status}`). Requiere atención manual."
 
     rows = [f"| Estado | `{r['status']}` |"]
     if r.get("connections") is not None:

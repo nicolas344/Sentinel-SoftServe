@@ -16,8 +16,8 @@ os.environ.setdefault("SUPABASE_SERVICE_KEY", "test-service-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-jwt-secret-min-32-characters-long")
 os.environ.setdefault("OPENAI_API_KEY", "sk-test")
 
-from main import app  # noqa: E402
 from auth import get_current_user  # noqa: E402
+from main import app  # noqa: E402
 
 
 @pytest.fixture

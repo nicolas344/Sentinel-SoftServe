@@ -139,8 +139,8 @@ def _run_pg_command(func: str, datname: str) -> tuple[int, str, str]:
     - pg_terminate_backend → pg_terminate_backend() sobre todas las conexiones
     """
     try:
-        import psycopg2          # type: ignore
-        import psycopg2.extras   # type: ignore
+        import psycopg2  # type: ignore
+        import psycopg2.extras  # type: ignore
     except ImportError:
         return 1, "", "psycopg2 no está instalado en el backend"
 
