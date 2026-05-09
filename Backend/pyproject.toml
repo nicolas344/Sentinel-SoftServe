@@ -13,8 +13,17 @@ select = ["E", "F", "I", "N", "W"]
 [tool.ruff.lint.per-file-ignores]
 # alerts.py usa los nombres de campo exactos del JSON de Alertmanager (camelCase obligatorio)
 "routers/alerts.py" = ["N815"]
-# seed_chromadb.py: textos largos de runbooks (E501) e import después de load_dotenv() intencional (E402)
+# seed scripts: textos largos de runbooks (E501) e import después de load_dotenv() intencional (E402)
 "scripts/seed_chromadb.py" = ["E501", "E402"]
+"scripts/seed_postgres_runbooks.py" = ["E501", "E402"]
+"scripts/seed_podman_runbooks.py" = ["E501", "E402"]
 # Docstrings y prompts del LLM con líneas ligeramente largas
 "services/alert_processor.py" = ["E501"]
 "services/langgraph_engine.py" = ["E501"]
+# Agentes multidominio: líneas largas en logging/prompts y orden de imports propio
+"services/agents/docker/agent.py" = ["E501", "I001"]
+"services/agents/podman/agent.py" = ["E501", "I001"]
+"services/agents/postgres/agent.py" = ["E501", "I001"]
+"services/agents/supervisor.py" = ["E501", "I001"]
+"routers/actions.py" = ["E501"]
+"tests/test_smoke.py" = ["E402"]
