@@ -58,8 +58,7 @@ def verify_resolution(
 
         section = _render_section(check, runtime)
         new_status = "resolved" if check["healthy"] else "failed"
-        resolved_at = datetime.now(tz=timezone.utc).isoformat() if new_status == "resolved" else None
-
+        resolved_at = (datetime.now(tz=timezone.utc).isoformat()if new_status == "resolved"else None)
         update = {
             "status": new_status,
             "agent_reasoning": (current_reasoning or "") + "\n\n---\n\n" + section,
