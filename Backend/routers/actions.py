@@ -95,6 +95,41 @@ def _validate_pg_command(command: str) -> tuple[str, str]:
 
 # ── Ejecutores ────────────────────────────────────────────────────────────────
 
+def _run_podman_command(subcommand: str, container_name: str) -> tuple[int, str, str]:
+    """
+    Ejecuta restart o logs sobre un contenedor Podman usando el Docker SDK
+    apuntando al socket rootless de Podman (PODMAN_HOST).
+    No requiere el binario 'podman' en el sistema.
+    """
+    podman_host = os.getenv("PODMAN_HOST", "unix:///run/podman/podman.sock")
+    try:
+        import docker  # type: ignore
+        client = docker.DockerClient(base_url=podman_host, timeout=15)
+    except Exception as e:
+        return 1, "", f"No se pudo inicializar cliente Podman: {e}"
+
+    try:
+        container = client.containers.get(container_name)
+    except docker.errors.NotFound:
+        return 1, "", f"Contenedor '{container_name}' no encontrado en Podman"
+    except Exception as e:
+        return 1, "", f"Error al obtener contenedor '{container_name}': {e}"
+
+    try:
+        if subcommand == "restart":
+            container.restart(timeout=10)
+            return 0, f"Contenedor '{container_name}' reiniciado correctamente", ""
+        elif subcommand == "logs":
+            raw = container.logs(tail=100, timestamps=True)
+            return 0, raw.decode("utf-8", errors="replace"), ""
+        else:
+            return 1, "", f"Subcomando Podman no soportado: '{subcommand}'"
+    except Exception as e:
+        return 1, "", f"Error ejecutando podman {subcommand} {container_name}: {e}"
+    finally:
+        client.close()
+
+
 def _run_pg_command(func: str, datname: str) -> tuple[int, str, str]:
     """
     Ejecuta la función Postgres segura contra la BD indicada.
@@ -104,8 +139,8 @@ def _run_pg_command(func: str, datname: str) -> tuple[int, str, str]:
     - pg_terminate_backend → pg_terminate_backend() sobre todas las conexiones
     """
     try:
-        import psycopg2          # type: ignore
-        import psycopg2.extras   # type: ignore
+        import psycopg2  # type: ignore
+        import psycopg2.extras  # type: ignore
     except ImportError:
         return 1, "", "psycopg2 no está instalado en el backend"
 
@@ -273,55 +308,63 @@ async def execute_action(
 
     # ── Rama Docker / Podman ─────────────────────────────────────────────────
     command_tokens = _validate_container_command(requested_command)
+    runtime_bin, subcommand, container_name = command_tokens
 
-    try:
-        completed = subprocess.run(
-            command_tokens,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except FileNotFoundError:
-        stderr = "El runtime no tiene disponible el binario 'docker'"
-        supabase.table("incidents").update({
-            "status": "failed",
-            "action_result": "",
-            "action_error": stderr,
-            "executed_at": executed_at,
-        }).eq("id", body.incident_id).execute()
+    if runtime_bin == "podman":
+        # Podman: usar Docker SDK apuntando al socket rootless (no hay binario podman en el backend)
+        logger.info(f"[actions] Ejecutando via SDK Podman: {subcommand} {container_name}")
+        exit_code, stdout, stderr = _run_podman_command(subcommand, container_name)
+    else:
+        # Docker: subprocess normal
+        try:
+            completed = subprocess.run(
+                command_tokens,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except FileNotFoundError:
+            stderr = "El runtime no tiene disponible el binario 'docker'"
+            supabase.table("incidents").update({
+                "status": "failed",
+                "action_result": "",
+                "action_error": stderr,
+                "executed_at": executed_at,
+            }).eq("id", body.incident_id).execute()
 
-        return ExecuteActionResponse(
-            incident_id=body.incident_id,
-            status="failed",
-            exit_code=127,
-            stdout="",
-            stderr=stderr,
-            friendly_message="La ejecución automática falló. Se recomienda revisión manual.",
-        )
-    except subprocess.TimeoutExpired as exc:
-        stderr = (exc.stderr or "").strip() or "Timeout al ejecutar el comando"
-        stdout = (exc.stdout or "").strip()
-        supabase.table("incidents").update({
-            "status": "failed",
-            "action_result": stdout,
-            "action_error": stderr,
-            "executed_at": executed_at,
-        }).eq("id", body.incident_id).execute()
+            return ExecuteActionResponse(
+                incident_id=body.incident_id,
+                status="failed",
+                exit_code=127,
+                stdout="",
+                stderr=stderr,
+                friendly_message="La ejecución automática falló. Se recomienda revisión manual.",
+            )
+        except subprocess.TimeoutExpired as exc:
+            stderr = (exc.stderr or "").strip() or "Timeout al ejecutar el comando"
+            stdout = (exc.stdout or "").strip()
+            supabase.table("incidents").update({
+                "status": "failed",
+                "action_result": stdout,
+                "action_error": stderr,
+                "executed_at": executed_at,
+            }).eq("id", body.incident_id).execute()
 
-        return ExecuteActionResponse(
-            incident_id=body.incident_id,
-            status="failed",
-            exit_code=124,
-            stdout=stdout,
-            stderr=stderr,
-            friendly_message="La ejecución automática falló. Se recomienda revisión manual.",
-        )
+            return ExecuteActionResponse(
+                incident_id=body.incident_id,
+                status="failed",
+                exit_code=124,
+                stdout=stdout,
+                stderr=stderr,
+                friendly_message="La ejecución automática falló. Se recomienda revisión manual.",
+            )
 
-    stdout = (completed.stdout or "").strip()
-    stderr = (completed.stderr or "").strip()
+        exit_code = completed.returncode
+        stdout = (completed.stdout or "").strip()
+        stderr = (completed.stderr or "").strip()
 
-    if completed.returncode == 0:
+    if exit_code == 0:
         supabase.table("incidents").update({
             "status": "verifying",
             "action_result": stdout,
@@ -344,7 +387,7 @@ async def execute_action(
         return ExecuteActionResponse(
             incident_id=body.incident_id,
             status="verifying",
-            exit_code=completed.returncode,
+            exit_code=exit_code,
             stdout=stdout,
             stderr=stderr,
         )
@@ -360,7 +403,7 @@ async def execute_action(
     return ExecuteActionResponse(
         incident_id=body.incident_id,
         status="failed",
-        exit_code=completed.returncode,
+        exit_code=exit_code,
         stdout=stdout,
         stderr=stderr,
         friendly_message="La ejecución automática falló. Se recomienda revisión manual.",

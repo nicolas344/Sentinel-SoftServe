@@ -82,16 +82,23 @@ def pg_stat_activity(datname: str = "") -> str:
         return _unavailable("pg_stat_activity", err or "")
 
     try:
-        where = "WHERE datname = %(datname)s" if datname else "WHERE datname NOT IN ('template0', 'template1', '')"
+        excluded = "('template0', 'template1', '')"
+        where = (
+            "WHERE datname = %(datname)s"
+            if datname
+            else f"WHERE datname NOT IN {excluded}"
+        )
         rows = _query(dsn, f"""
             SELECT
                 datname,
                 state,
                 wait_event_type,
                 wait_event,
-                COUNT(*)                                        AS conexiones,
-                MAX(EXTRACT(EPOCH FROM (now() - query_start))) AS max_duracion_s,
-                MAX(EXTRACT(EPOCH FROM (now() - state_change))) AS max_estado_s
+                COUNT(*) AS conexiones,
+                MAX(EXTRACT(EPOCH FROM (now() - query_start)))
+                    AS max_duracion_s,
+                MAX(EXTRACT(EPOCH FROM (now() - state_change)))
+                    AS max_estado_s
             FROM pg_stat_activity
             {where}
             GROUP BY datname, state, wait_event_type, wait_event
@@ -103,7 +110,8 @@ def pg_stat_activity(datname: str = "") -> str:
             SELECT
                 datname,
                 COUNT(*) AS total_conexiones,
-                (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS max_connections
+                (SELECT setting::int FROM pg_settings
+                 WHERE name = 'max_connections') AS max_connections
             FROM pg_stat_activity
             {where}
             GROUP BY datname
@@ -125,13 +133,18 @@ def pg_stat_database(datname: str = "") -> str:
         return _unavailable("pg_stat_database", err or "")
 
     try:
-        where = "WHERE datname = %(datname)s" if datname else "WHERE datname NOT IN ('template0', 'template1', '')"
+        excluded = "('template0', 'template1', '')"
+        where = (
+            "WHERE datname = %(datname)s"
+            if datname
+            else f"WHERE datname NOT IN {excluded}"
+        )
         rows = _query(dsn, f"""
             SELECT
                 datname,
-                numbackends                                              AS conexiones_activas,
-                xact_commit                                              AS commits,
-                xact_rollback                                            AS rollbacks,
+                numbackends AS conexiones_activas,
+                xact_commit AS commits,
+                xact_rollback AS rollbacks,
                 deadlocks,
                 blks_read                                                AS lecturas_disco,
                 blks_hit                                                 AS lecturas_cache,

@@ -181,8 +181,12 @@ services:
   podman-exporter:
     image: quay.io/navidys/prometheus-podman-exporter:latest
     container_name: sentinel-podman-exporter
+    group_add:
+      - "1000"
     environment:
-      PODMAN_URL: "unix:///run/podman/podman.sock"
+      CONTAINER_HOST: "unix:///run/podman/podman.sock"
+      XDG_RUNTIME_DIR: "/tmp"
+      HOME: "/tmp"
     volumes:
       - /run/user/1000/podman/podman.sock:/run/podman/podman.sock:ro
     ports:

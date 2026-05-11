@@ -647,7 +647,7 @@ export default function Dashboard() {
       {showApprovalModal && selected && (
         <ApprovalModal
           incident={selected}
-          onApprove={async (comment) => {
+          onApprove={async () => {
             setActionLoading(true)
             setActionError(null)
             try {
