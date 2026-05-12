@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/useAuth'
 
 export default function Login() {
@@ -63,11 +63,18 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="bg-blue-500 text-white border-0 rounded-lg py-3 text-sm font-semibold cursor-pointer mt-2"
+            className="bg-sky-500 hover:bg-sky-400 disabled:opacity-60 text-white border-0 rounded-lg py-3 text-sm font-semibold cursor-pointer mt-2 transition-colors"
           >
             {loading ? 'Ingresando...' : 'Iniciar sesión'}
           </button>
         </form>
+
+        <p className="text-center text-xs text-slate-500 mt-6">
+          ¿Primera vez?{' '}
+          <Link to="/setup" className="text-sky-400 hover:text-sky-300 transition-colors">
+            Revisa la guía de configuración →
+          </Link>
+        </p>
       </div>
     </div>
   )
