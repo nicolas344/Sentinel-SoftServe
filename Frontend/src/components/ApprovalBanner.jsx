@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Zap, X, PauseCircle, CheckCircle2, Terminal } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -23,6 +24,9 @@ export default function ApprovalBanner({ incident, onApprove, loading, error }) 
   const [localError, setLocalError] = useState(null)
 
   if (!incident?.proposed_action) return null
+
+  const busy = loading || !!localLoading
+  const displayError = error || localError
 
   const handleReject = async () => {
     setLocalLoading('reject')
@@ -60,46 +64,60 @@ export default function ApprovalBanner({ incident, onApprove, loading, error }) 
     }
   }
 
-  const busy = loading || !!localLoading
-  const displayError = error || localError
-
   return (
-    <div className="mx-6 mb-4 bg-cyan-950 border border-cyan-500/30 rounded-lg p-4">
-      <p className="text-xs font-semibold text-cyan-300 uppercase tracking-wider mb-2">
-        ⚡ Acción propuesta por el agente
-      </p>
-      <pre className="bg-slate-950 border border-slate-800 rounded-md px-3 py-2.5 text-xs text-sky-300 font-mono overflow-x-auto whitespace-pre-wrap mb-4">
-        $ {incident.proposed_action}
-      </pre>
-
-      {displayError && (
-        <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/25 rounded-md px-3 py-2 mb-3">
-          {displayError}
+    <div className="mx-5 mb-4 rounded-xl border border-cyan-500/30 bg-cyan-950/60 overflow-hidden animate-approval-glow">
+      {/* Header stripe */}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-cyan-500/20 bg-cyan-500/5">
+        <Zap className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+        <p className="text-xs font-semibold text-cyan-300 tracking-wide uppercase">
+          Acción propuesta por el agente
         </p>
-      )}
+      </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <button
-          onClick={handleReject}
-          disabled={busy}
-          className="border border-red-800/50 bg-red-900/30 hover:bg-red-900/60 disabled:opacity-50 text-red-400 rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors"
-        >
-          {localLoading === 'reject' ? 'Rechazando…' : '✗ Rechazar'}
-        </button>
-        <button
-          onClick={handlePostpone}
-          disabled={busy}
-          className="border border-slate-700 bg-slate-800/50 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors"
-        >
-          {localLoading === 'postpone' ? 'Posponiendo…' : '⏸ Posponer 30min'}
-        </button>
-        <button
-          onClick={handleApprove}
-          disabled={busy}
-          className="ml-auto bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-md px-4 py-1.5 text-xs font-medium transition-colors"
-        >
-          {localLoading === 'approve' || loading ? 'Aprobando…' : '✓ Aprobar y ejecutar'}
-        </button>
+      <div className="p-4">
+        {/* Command */}
+        <div className="flex items-start gap-2 mb-4">
+          <Terminal className="w-3.5 h-3.5 text-slate-500 shrink-0 mt-0.5" />
+          <pre className="flex-1 text-sm text-sky-300 font-mono bg-slate-950/80 border border-slate-800 rounded-lg px-3 py-2.5 overflow-x-auto whitespace-pre-wrap">
+            {incident.proposed_action}
+          </pre>
+        </div>
+
+        {displayError && (
+          <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 mb-3">
+            {displayError}
+          </p>
+        )}
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleReject}
+            disabled={busy}
+            className="flex items-center gap-1.5 border border-red-800/50 bg-red-950/40 hover:bg-red-900/50 disabled:opacity-50 text-red-400 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+            {localLoading === 'reject' ? 'Rechazando…' : 'Rechazar'}
+          </button>
+
+          <button
+            onClick={handlePostpone}
+            disabled={busy}
+            className="flex items-center gap-1.5 border border-slate-700 bg-slate-800/50 hover:bg-slate-700 disabled:opacity-50 text-slate-300 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors"
+          >
+            <PauseCircle className="w-3.5 h-3.5" />
+            {localLoading === 'postpone' ? 'Posponiendo…' : 'Posponer 30min'}
+          </button>
+
+          <button
+            onClick={handleApprove}
+            disabled={busy}
+            className="ml-auto flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg px-4 py-1.5 text-xs font-semibold transition-colors"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            {localLoading === 'approve' || loading ? 'Aprobando…' : 'Aprobar y ejecutar'}
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -1,79 +1,130 @@
-const SEVERITY_CONFIG = {
-  critical: { dot: 'bg-red-500',    badge: 'bg-red-500/15 text-red-400 border border-red-500/25' },
-  high:     { dot: 'bg-orange-500', badge: 'bg-orange-500/15 text-orange-400 border border-orange-500/25' },
-  medium:   { dot: 'bg-yellow-500', badge: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/25' },
-  low:      { dot: 'bg-green-500',  badge: 'bg-green-500/15 text-green-400 border border-green-500/25' },
+import { Zap, Clock } from 'lucide-react'
+
+const SEVERITY = {
+  critical: {
+    border:  'border-l-red-500',
+    dot:     'bg-red-500',
+    badge:   'bg-red-500/10 text-red-400 border border-red-500/20',
+    label:   'Crítico',
+    glow:    'shadow-red-500/10',
+  },
+  high: {
+    border:  'border-l-orange-500',
+    dot:     'bg-orange-500',
+    badge:   'bg-orange-500/10 text-orange-400 border border-orange-500/20',
+    label:   'Alto',
+    glow:    'shadow-orange-500/10',
+  },
+  medium: {
+    border:  'border-l-yellow-500',
+    dot:     'bg-yellow-500',
+    badge:   'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20',
+    label:   'Medio',
+    glow:    '',
+  },
+  low: {
+    border:  'border-l-green-500',
+    dot:     'bg-green-500',
+    badge:   'bg-green-500/10 text-green-400 border border-green-500/20',
+    label:   'Bajo',
+    glow:    '',
+  },
 }
 
-const SEVERITY_LABELS = { critical: 'Crítico', high: 'Alto', medium: 'Medio', low: 'Bajo' }
-
-const STATUS_CONFIG = {
-  detected:           { label: 'Detectado',          className: 'bg-blue-500/15 text-blue-400' },
-  investigating:      { label: 'Investigando',        className: 'bg-purple-500/15 text-purple-400' },
-  analyzed:           { label: 'Analizado',           className: 'bg-amber-500/15 text-amber-400' },
-  awaiting_approval:  { label: 'Esperando aprobación', className: 'bg-cyan-500/15 text-cyan-400' },
-  executing_solution: { label: 'Ejecutando solución', className: 'bg-indigo-500/15 text-indigo-300' },
-  verifying:          { label: 'Verificando',         className: 'bg-teal-500/15 text-teal-300' },
-  resolved:           { label: 'Resuelto',            className: 'bg-emerald-500/15 text-emerald-400' },
-  failed:             { label: 'Falló',               className: 'bg-red-500/15 text-red-400' },
+const STATUS = {
+  detected:           { label: 'Detectado',     color: 'text-blue-400' },
+  investigating:      { label: 'Investigando',   color: 'text-purple-400' },
+  analyzed:           { label: 'Analizado',      color: 'text-amber-400' },
+  awaiting_approval:  { label: 'Aprobar',        color: 'text-cyan-400' },
+  executing_solution: { label: 'Ejecutando',     color: 'text-indigo-300' },
+  verifying:          { label: 'Verificando',    color: 'text-teal-300' },
+  resolved:           { label: 'Resuelto',       color: 'text-emerald-400' },
+  failed:             { label: 'Falló',          color: 'text-red-400' },
 }
 
-const RUNTIME_CONFIG = {
-  docker:   { label: 'docker',   className: 'bg-blue-900/40 text-blue-400' },
-  podman:   { label: 'podman',   className: 'bg-purple-900/40 text-purple-400' },
-  database: { label: 'database', className: 'bg-amber-900/40 text-amber-400' },
+const RUNTIME = {
+  docker:   'docker',
+  podman:   'podman',
+  database: 'db',
 }
 
-function formatDate(dateStr) {
-  if (!dateStr) return '—'
-  return new Date(dateStr).toLocaleString('es-CO', {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
+function timeAgo(dateStr) {
+  if (!dateStr) return null
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'ahora'
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h`
+  return `${Math.floor(hrs / 24)}d`
 }
 
 export default function IncidentCard({ incident, isSelected, onClick }) {
-  const severityCfg  = SEVERITY_CONFIG[incident.severity] || SEVERITY_CONFIG.medium
-  const statusCfg    = STATUS_CONFIG[incident.status] || STATUS_CONFIG.detected
-  const runtimeKey   = incident.source_type === 'database' ? 'database' : incident.container_runtime
-  const runtimeCfg   = RUNTIME_CONFIG[runtimeKey]
+  const sev    = SEVERITY[incident.severity] || SEVERITY.medium
+  const status = STATUS[incident.status] || STATUS.detected
+  const rt     = incident.source_type === 'database' ? 'database' : incident.container_runtime
+  const rtLabel = RUNTIME[rt]
   const needsApproval = incident.status === 'awaiting_approval'
+  const ago = timeAgo(incident.created_at)
 
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-6 py-4 hover:bg-slate-900/60 transition-colors ${
-        isSelected ? 'bg-slate-900' : ''
-      }`}
+      className={`
+        w-full text-left border-l-[3px] ${sev.border}
+        px-4 py-3.5 transition-all duration-150
+        ${isSelected
+          ? 'bg-slate-800/80 shadow-lg ' + sev.glow
+          : 'hover:bg-slate-900/60'
+        }
+      `}
     >
       <div className="flex items-start gap-3">
-        <span className={`inline-block w-2 h-2 rounded-full shrink-0 mt-[5px] ${severityCfg.dot}`} />
+        {/* Severity dot */}
+        <span className={`mt-1.5 w-1.5 h-1.5 rounded-full shrink-0 ${sev.dot} ${incident.severity === 'critical' ? 'animate-pulse' : ''}`} />
+
         <div className="flex-1 min-w-0">
-          <p className="text-sm text-slate-200 leading-snug truncate">{incident.title}</p>
-          <p className="text-xs text-slate-500 mt-1 truncate">
-            {incident.target}
-            {incident.server_name ? ` · ${incident.server_name}` : ''}
+          {/* Title */}
+          <p className="text-sm font-medium text-slate-200 leading-snug truncate">
+            {incident.title}
           </p>
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${severityCfg.badge}`}>
-              {SEVERITY_LABELS[incident.severity] || incident.severity}
+
+          {/* Target + meta */}
+          <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
+            <span className="font-mono truncate max-w-[120px]">{incident.target}</span>
+            {rtLabel && (
+              <>
+                <span className="text-slate-700">·</span>
+                <span>{rtLabel}</span>
+              </>
+            )}
+            {ago && (
+              <>
+                <span className="text-slate-700">·</span>
+                <span className="flex items-center gap-0.5 ml-auto shrink-0">
+                  <Clock className="w-3 h-3" />
+                  {ago}
+                </span>
+              </>
+            )}
+          </div>
+
+          {/* Badges row */}
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium ${sev.badge}`}>
+              {sev.label}
             </span>
-            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${statusCfg.className}`}>
-              {statusCfg.label}
+            <span className={`text-[11px] font-medium ${status.color}`}>
+              {status.label}
             </span>
-            {runtimeCfg && (
-              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-mono ${runtimeCfg.className}`}>
-                {runtimeCfg.label}
+
+            {needsApproval && (
+              <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 animate-pulse">
+                <Zap className="w-3 h-3" />
+                Aprobar
               </span>
             )}
-            <span className="text-xs text-slate-600 ml-auto">{formatDate(incident.created_at)}</span>
           </div>
-          {needsApproval && (
-            <div className="mt-2">
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 animate-pulse">
-                ⚡ Acción requerida
-              </span>
-            </div>
-          )}
         </div>
       </div>
     </button>
