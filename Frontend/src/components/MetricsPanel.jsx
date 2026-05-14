@@ -133,7 +133,7 @@ function PostgresMetrics({ m }) {
   )
 }
 
-export default function MetricsPanel({ incidentId }) {
+export default function MetricsPanel({ incidentId, metricsSnapshot }) {
   const [metrics, setMetrics] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -162,6 +162,27 @@ export default function MetricsPanel({ incidentId }) {
   }
 
   if (error || allNull) {
+    if (metricsSnapshot) {
+      const snapAllNull = Object.entries(metricsSnapshot)
+        .filter(([k]) => k !== 'type')
+        .every(([, v]) => v === null)
+      if (!snapAllNull) {
+        return (
+          <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-amber-500/80 uppercase tracking-wider">
+                {metricsSnapshot.type === 'postgres' ? 'PostgreSQL' : 'Contenedor'} · snapshot al detectarse
+              </span>
+              <span className="text-[10px] text-slate-700">datos históricos</span>
+            </div>
+            {metricsSnapshot.type === 'postgres'
+              ? <PostgresMetrics m={metricsSnapshot} />
+              : <ContainerMetrics m={metricsSnapshot} />
+            }
+          </div>
+        )
+      }
+    }
     return (
       <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">
         <p className="text-xs text-slate-600">

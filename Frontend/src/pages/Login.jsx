@@ -30,7 +30,7 @@ export default function Login() {
       <div className="w-full max-w-sm">
 
         {/* Brand */}
-        <div className="flex items-center gap-3 mb-8 justify-center">
+        <div className="flex items-center gap-3 mb-6 justify-center">
           <div className="w-10 h-10 rounded-xl bg-sky-600/20 border border-sky-500/30 flex items-center justify-center">
             <Shield className="w-5 h-5 text-sky-400" />
           </div>
@@ -38,6 +38,20 @@ export default function Login() {
             <h1 className="text-xl font-bold text-slate-50 leading-none">Sentinel</h1>
             <p className="text-xs text-slate-500 mt-0.5">Incident Triage Copilot</p>
           </div>
+        </div>
+
+        {/* Product description */}
+        <div className="mb-6 space-y-2">
+          {[
+            { icon: AlertCircle, text: 'Detecta incidentes automáticamente vía Prometheus y cAdvisor' },
+            { icon: ArrowRight, text: 'El agente IA analiza la causa raíz y propone acciones correctivas' },
+            { icon: Shield,      text: 'Tú apruebas — el sistema ejecuta, verifica y cierra el incidente' },
+          ].map(({ icon: Icon, text }) => (
+            <div key={text} className="flex items-start gap-2.5 text-xs text-slate-500">
+              <Icon className="w-3.5 h-3.5 text-sky-500/60 shrink-0 mt-0.5" />
+              <span>{text}</span>
+            </div>
+          ))}
         </div>
 
         {/* Card */}

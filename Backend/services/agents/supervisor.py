@@ -24,6 +24,7 @@ from langchain_openai import ChatOpenAI
 from db.supabase_client import supabase
 from services.agents.base import IncidentContext, InvestigationResult
 from services.agents.registry import find_agent_for, list_agents
+from services.incident_events import record_event
 
 logger = logging.getLogger(__name__)
 _MEMORY_WRITE_TIMEOUT_SEC = 8
@@ -209,6 +210,7 @@ def run_triage(ctx: IncidentContext) -> None:
                 f"**Tipo detectado:** `{incident_type}`\n\n{class_reason}"
             ),
         })
+        record_event(ctx.incident_id, "investigating")
 
         # 2. Routing
         agent = find_agent_for(ctx)
@@ -226,6 +228,7 @@ def run_triage(ctx: IncidentContext) -> None:
                     f"## Error de routing\n\n{msg}"
                 ),
             })
+            record_event(ctx.incident_id, "analyzed")
             return
 
         logger.info(f"[Supervisor] Enrutando {ctx.incident_id[:8]} → '{agent.name}'")
@@ -240,6 +243,7 @@ def run_triage(ctx: IncidentContext) -> None:
             "status": "analyzed",
             "agent_reasoning": full_reasoning,
         })
+        record_event(ctx.incident_id, "analyzed")
 
         # Pasa a gate de aprobacion cuando hay accion segura propuesta.
         if proposed_action:
@@ -247,6 +251,7 @@ def run_triage(ctx: IncidentContext) -> None:
                 "status": "awaiting_approval",
                 "proposed_action": proposed_action,
             })
+            record_event(ctx.incident_id, "awaiting_approval")
 
         # 5. Memoria episódica (best-effort, no bloqueante)
         pool = ThreadPoolExecutor(max_workers=1)
@@ -283,6 +288,7 @@ def run_triage(ctx: IncidentContext) -> None:
             ),
             "action_error": str(e),
         })
+        record_event(ctx.incident_id, "failed")
         if trace:
             trace.update(output={"error": str(e)})
     finally:

@@ -23,6 +23,45 @@ import { executeIncidentAction } from '../services/incidentActions'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+function formatMTTR(created, resolved) {
+  if (!created || !resolved) return null
+  const ms = new Date(resolved) - new Date(created)
+  if (ms < 0) return null
+  const mins = Math.floor(ms / 60000)
+  const secs = Math.floor((ms % 60000) / 1000)
+  if (mins < 1) return `${secs}s`
+  if (mins < 60) return `${mins}m ${secs}s`
+  const hrs = Math.floor(mins / 60)
+  return `${hrs}h ${mins % 60}m`
+}
+
+function truncateTitle(title, max = 70) {
+  if (!title) return '—'
+  if (title.length <= max) return title
+  return title.slice(0, max - 1) + '…'
+}
+
+function ColoredLogs({ logs }) {
+  if (!logs) return null
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs font-mono overflow-auto max-h-96 space-y-px leading-relaxed">
+      {logs.split('\n').map((line, i) => {
+        const up = line.toUpperCase()
+        const color =
+          /\b(ERROR|FATAL|CRITICAL|EXCEPTION|TRACEBACK|PANIC)\b/.test(up) ? 'text-red-300' :
+          /\b(WARN|WARNING)\b/.test(up) ? 'text-yellow-300' :
+          /\b(DEBUG)\b/.test(up) ? 'text-slate-600' :
+          /\b(INFO)\b/.test(up) ? 'text-slate-400' :
+          /^\d{4}-\d{2}-\d{2}/.test(line) ? 'text-sky-400/80' :
+          'text-slate-300'
+        return (
+          <div key={i} className={`whitespace-pre-wrap break-all ${color}`}>{line || ' '}</div>
+        )
+      })}
+    </div>
+  )
+}
+
 const SEVERITY_ORDER   = { critical: 0, high: 1, medium: 2, low: 3 }
 const TERMINAL         = new Set(['resolved', 'failed'])
 const PAGE_SIZE        = 20
@@ -127,12 +166,17 @@ function EmptyDetail({ hasIncidents, onNew }) {
     <div className="flex-1 flex flex-col items-center justify-center gap-6 px-12 text-center">
       {hasIncidents ? (
         <>
-          <div className="w-12 h-12 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center">
-            <ChevronRight className="w-5 h-5 text-slate-600" />
+          <div className="flex items-center gap-3 text-slate-600">
+            <div className="flex items-center gap-1.5 text-xs text-slate-600 animate-pulse">
+              <ChevronRight className="w-4 h-4 rotate-180" />
+              <span>de la lista</span>
+            </div>
+            <div className="w-px h-6 bg-slate-800" />
+            <ChevronRight className="w-5 h-5 text-slate-700" />
           </div>
           <div>
-            <p className="text-sm text-slate-500">Selecciona un incidente</p>
-            <p className="text-xs text-slate-700 mt-1">El análisis del agente aparecerá en el panel derecho</p>
+            <p className="text-sm text-slate-400 font-medium">Selecciona un incidente</p>
+            <p className="text-xs text-slate-600 mt-1">El análisis del agente aparecerá aquí</p>
           </div>
         </>
       ) : (
@@ -285,16 +329,39 @@ export default function Dashboard() {
       return true
     })
     .slice()
-    .sort(
-      (a, b) =>
-        (SEVERITY_ORDER[a.severity] ?? 4) - (SEVERITY_ORDER[b.severity] ?? 4) ||
-        new Date(b.created_at) - new Date(a.created_at),
-    )
+    .sort((a, b) => {
+      if (statusFilter === 'active') {
+        return (SEVERITY_ORDER[a.severity] ?? 4) - (SEVERITY_ORDER[b.severity] ?? 4)
+          || new Date(b.created_at) - new Date(a.created_at)
+      }
+      if (statusFilter === 'all') {
+        // Activos antes que terminales
+        const aT = TERMINAL.has(a.status) ? 1 : 0
+        const bT = TERMINAL.has(b.status) ? 1 : 0
+        if (aT !== bT) return aT - bT
+        // Dentro de activos: severidad primero
+        if (!aT) {
+          return (SEVERITY_ORDER[a.severity] ?? 4) - (SEVERITY_ORDER[b.severity] ?? 4)
+            || new Date(b.created_at) - new Date(a.created_at)
+        }
+        // Dentro de resueltos: más recientes primero
+        return new Date(b.created_at) - new Date(a.created_at)
+      }
+      // Resueltos: fecha primero
+      return new Date(b.created_at) - new Date(a.created_at)
+    })
 
   const visibleIncidents = filteredIncidents.slice(0, displayLimit)
   const hasMore          = filteredIncidents.length > displayLimit
   const criticalCount    = incidents.filter((i) => i.severity === 'critical' && !TERMINAL.has(i.status)).length
   const activeCount      = incidents.filter((i) => !TERMINAL.has(i.status)).length
+  const resolvedCount    = incidents.filter((i) => TERMINAL.has(i.status)).length
+
+  const TAB_COUNTS = {
+    active:   activeCount,
+    all:      incidents.length,
+    resolved: resolvedCount,
+  }
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -386,6 +453,7 @@ export default function Dashboard() {
           {notificationsSupported && notificationPermission === 'granted' && !snoozed && (
             <button
               onClick={() => snoozeForMinutes(15)}
+              title="Silenciar notificaciones del navegador por 15 minutos"
               className="flex items-center gap-1.5 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-400 text-xs hover:border-slate-500 transition-colors"
             >
               <BellOff className="w-3.5 h-3.5" />
@@ -408,10 +476,21 @@ export default function Dashboard() {
             <span className="hidden sm:inline">Sistema</span>
           </Link>
 
+          {user?.email && (
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-600 border-r border-slate-800 pr-2 mr-0.5">
+              <div className="w-5 h-5 rounded-full bg-sky-600/20 border border-sky-500/30 flex items-center justify-center text-[10px] font-bold text-sky-400 shrink-0">
+                {user.email[0].toUpperCase()}
+              </div>
+              <span className="hidden md:inline truncate max-w-[120px]" title={user.email}>
+                {user.email}
+              </span>
+            </div>
+          )}
+
           <button
             onClick={handleSignOut}
+            title="Cerrar sesión"
             className="flex items-center gap-1.5 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-400 text-xs hover:border-slate-500 hover:text-slate-300 transition-colors"
-            title={user?.email}
           >
             <LogOut className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Salir</span>
@@ -450,13 +529,20 @@ export default function Dashboard() {
                 <button
                   key={tab.id}
                   onClick={() => setStatusFilter(tab.id)}
-                  className={`flex-1 py-2 text-xs font-medium border-b-2 transition-colors ${
+                  className={`flex-1 py-2 text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1 ${
                     statusFilter === tab.id
                       ? 'border-sky-500 text-sky-400'
                       : 'border-transparent text-slate-500 hover:text-slate-300'
                   }`}
                 >
                   {tab.label}
+                  {TAB_COUNTS[tab.id] > 0 && (
+                    <span className={`text-[10px] px-1 rounded font-mono ${
+                      statusFilter === tab.id ? 'text-sky-500/70' : 'text-slate-700'
+                    }`}>
+                      {TAB_COUNTS[tab.id]}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -485,23 +571,61 @@ export default function Dashboard() {
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto">
-              <div className="divide-y divide-slate-800/50">
-                {visibleIncidents.map((incident) => (
-                  <IncidentCard
-                    key={incident.id}
-                    incident={incident}
-                    isSelected={selected?.id === incident.id}
-                    onClick={() => openIncident(incident)}
-                  />
-                ))}
-              </div>
+              {/* Contador de posición */}
+              {filteredIncidents.length > 0 && (
+                <div className="px-4 py-1.5 text-[10px] text-slate-700 border-b border-slate-800/60 bg-slate-950/40">
+                  Mostrando {visibleIncidents.length} de {filteredIncidents.length}
+                </div>
+              )}
+
+              {/* Lista con separador en vista "Todos" */}
+              {statusFilter === 'all' ? (
+                <>
+                  {visibleIncidents.filter((i) => !TERMINAL.has(i.status)).length > 0 && (
+                    <>
+                      <div className="px-4 py-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-wider bg-slate-950/60 border-b border-slate-800/40">
+                        Activos
+                      </div>
+                      <div className="divide-y divide-slate-800/50">
+                        {visibleIncidents.filter((i) => !TERMINAL.has(i.status)).map((incident) => (
+                          <IncidentCard key={incident.id} incident={incident} isSelected={selected?.id === incident.id} onClick={() => openIncident(incident)} />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {visibleIncidents.filter((i) => TERMINAL.has(i.status)).length > 0 && (
+                    <>
+                      <div className="px-4 py-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-wider bg-slate-950/60 border-b border-slate-800/40 border-t border-slate-800/40 mt-1">
+                        Resueltos
+                      </div>
+                      <div className="divide-y divide-slate-800/50">
+                        {visibleIncidents.filter((i) => TERMINAL.has(i.status)).map((incident) => (
+                          <IncidentCard key={incident.id} incident={incident} isSelected={selected?.id === incident.id} onClick={() => openIncident(incident)} />
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <div className="divide-y divide-slate-800/50">
+                  {visibleIncidents.map((incident) => (
+                    <IncidentCard
+                      key={incident.id}
+                      incident={incident}
+                      isSelected={selected?.id === incident.id}
+                      onClick={() => openIncident(incident)}
+                    />
+                  ))}
+                </div>
+              )}
+
               {hasMore && (
                 <div className="px-4 py-3 border-t border-slate-800">
                   <button
                     onClick={() => setDisplayLimit((p) => p + PAGE_SIZE)}
                     className="w-full text-xs text-slate-600 hover:text-slate-400 border border-slate-800 hover:border-slate-700 rounded-lg py-2 transition-colors"
                   >
-                    Cargar {Math.min(PAGE_SIZE, filteredIncidents.length - displayLimit)} más
+                    Cargar {Math.min(PAGE_SIZE, filteredIncidents.length - displayLimit)} más · {filteredIncidents.length - displayLimit} restantes
                   </button>
                 </div>
               )}
@@ -517,7 +641,9 @@ export default function Dashboard() {
               <div className="shrink-0 px-6 py-4 border-b border-slate-800">
                 <div className="flex items-start justify-between gap-4 mb-3">
                   <div className="min-w-0">
-                    <h2 className="text-base font-semibold text-slate-100 leading-snug">{selected.title}</h2>
+                    <h2 className="text-base font-semibold text-slate-100 leading-snug" title={selected.title}>
+                      {truncateTitle(selected.title)}
+                    </h2>
                     <p className="text-xs text-slate-500 mt-0.5 font-mono truncate">
                       {selected.target}{selected.server_name ? ` · ${selected.server_name}` : ''}
                     </p>
@@ -574,11 +700,13 @@ export default function Dashboard() {
                 {selected.status !== 'awaiting_approval' && (
                   <div className="px-6 py-4 space-y-3">
 
-                    {selected.proposed_action && !TERMINAL.has(selected.status) && (
+                    {selected.proposed_action && (
                       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
                         <div className="flex items-center gap-2 mb-2">
                           <Terminal className="w-3.5 h-3.5 text-slate-500" />
-                          <p className="text-xs text-slate-500">Comando propuesto</p>
+                          <p className="text-xs text-slate-500">
+                            {TERMINAL.has(selected.status) ? 'Comando ejecutado' : 'Comando propuesto'}
+                          </p>
                         </div>
                         <pre className="text-sm text-sky-300 font-mono overflow-x-auto whitespace-pre-wrap">
                           {selected.proposed_action}
@@ -603,10 +731,25 @@ export default function Dashboard() {
                       </div>
                     )}
 
-                    {selected.status === 'resolved' && selected.executed_at && (
-                      <div className="flex items-center gap-2 text-emerald-400 text-sm">
-                        <CheckCircle2 className="w-4 h-4" />
-                        Servicio verificado y recuperado · {formatDate(selected.executed_at)}
+                    {selected.status === 'resolved' && (
+                      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl px-4 py-3 space-y-1.5">
+                        <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium">
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                          {selected.executed_at ? 'Servicio verificado y recuperado' : 'Incidente resuelto'}
+                        </div>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 pl-6">
+                          {selected.executed_at && (
+                            <span>Resuelto el {formatDate(selected.executed_at)}</span>
+                          )}
+                          {formatMTTR(selected.created_at, selected.executed_at || selected.updated_at) && (
+                            <span className="text-emerald-500/80 font-medium">
+                              MTTR: {formatMTTR(selected.created_at, selected.executed_at || selected.updated_at)}
+                            </span>
+                          )}
+                          {selected.incident_type && (
+                            <span>Tipo: <span className="font-mono text-slate-400">{selected.incident_type}</span></span>
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -639,6 +782,33 @@ export default function Dashboard() {
                       <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
                         {actionError}
                       </p>
+                    )}
+
+                    {/* Fallback: incidente sin acción (resuelto automáticamente o solo analizado) */}
+                    {!selected.proposed_action && !selected.action_result && !actionResponse && (
+                      <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+                        <p className="text-xs text-slate-500">Resumen del incidente</p>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <p className="text-slate-600">Tipo detectado</p>
+                            <p className="text-slate-300 font-mono mt-0.5">{selected.incident_type || 'No clasificado'}</p>
+                          </div>
+                          <div>
+                            <p className="text-slate-600">Recurso afectado</p>
+                            <p className="text-slate-300 font-mono mt-0.5 truncate">{selected.target || selected.container_name || '—'}</p>
+                          </div>
+                        </div>
+                        {selected.status === 'analyzed' && (
+                          <p className="text-xs text-amber-400/80 mt-2">
+                            El agente analizó el incidente pero no propuso una acción ejecutable. Revisa el panel "Agente" para ver el análisis completo.
+                          </p>
+                        )}
+                        {(selected.status === 'resolved' || selected.status === 'failed') && !selected.executed_at && (
+                          <p className="text-xs text-slate-500 mt-2">
+                            Resuelto automáticamente — sin acción ejecutada por el agente.
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
@@ -684,14 +854,12 @@ export default function Dashboard() {
                 <div className="space-y-5">
                   <div className="space-y-2">
                     <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Métricas del servicio</p>
-                    <MetricsPanel incidentId={selected.id} />
+                    <MetricsPanel incidentId={selected.id} metricsSnapshot={selected.metrics_snapshot} />
                   </div>
                   {selected.logs && (
                     <div className="space-y-2">
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Logs del contenedor</p>
-                      <pre className="bg-slate-900 border border-slate-800 rounded-xl p-4 text-xs text-slate-300 font-mono overflow-auto whitespace-pre-wrap leading-relaxed max-h-96">
-                        {selected.logs}
-                      </pre>
+                      <ColoredLogs logs={selected.logs} />
                     </div>
                   )}
                   {!selected.logs && (
@@ -708,10 +876,7 @@ export default function Dashboard() {
                     <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Runbooks relevantes</p>
                     <RunbookViewer incidentId={selected.id} />
                   </div>
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Incidentes similares</p>
-                    <SimilarIncidentsCard incidentId={selected.id} />
-                  </div>
+                  <SimilarIncidentsCard incidentId={selected.id} />
                 </div>
               )}
 

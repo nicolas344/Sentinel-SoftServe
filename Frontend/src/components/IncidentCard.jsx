@@ -1,4 +1,22 @@
-import { Zap, Clock } from 'lucide-react'
+import { Zap, Clock, Timer } from 'lucide-react'
+
+function formatMTTR(created, resolved) {
+  if (!created || !resolved) return null
+  const ms = new Date(resolved) - new Date(created)
+  if (ms < 0) return null
+  const mins = Math.floor(ms / 60000)
+  const secs = Math.floor((ms % 60000) / 1000)
+  if (mins < 1) return `${secs}s`
+  if (mins < 60) return `${mins}m ${secs}s`
+  const hrs = Math.floor(mins / 60)
+  return `${hrs}h ${mins % 60}m`
+}
+
+function truncateTitle(title, max = 55) {
+  if (!title) return '—'
+  if (title.length <= max) return title
+  return title.slice(0, max - 1) + '…'
+}
 
 const SEVERITY = {
   critical: {
@@ -65,7 +83,9 @@ export default function IncidentCard({ incident, isSelected, onClick }) {
   const rt     = incident.source_type === 'database' ? 'database' : incident.container_runtime
   const rtLabel = RUNTIME[rt]
   const needsApproval = incident.status === 'awaiting_approval'
-  const ago = timeAgo(incident.created_at)
+  const isResolved    = incident.status === 'resolved'
+  const ago  = timeAgo(incident.created_at)
+  const mttr = isResolved ? formatMTTR(incident.created_at, incident.executed_at) : null
 
   return (
     <button
@@ -85,8 +105,8 @@ export default function IncidentCard({ incident, isSelected, onClick }) {
 
         <div className="flex-1 min-w-0">
           {/* Title */}
-          <p className="text-sm font-medium text-slate-200 leading-snug truncate">
-            {incident.title}
+          <p className="text-sm font-medium text-slate-200 leading-snug truncate" title={incident.title}>
+            {truncateTitle(incident.title)}
           </p>
 
           {/* Target + meta */}
@@ -122,6 +142,13 @@ export default function IncidentCard({ incident, isSelected, onClick }) {
               <span className="ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 animate-pulse">
                 <Zap className="w-3 h-3" />
                 Aprobar
+              </span>
+            )}
+
+            {mttr && (
+              <span className="ml-auto inline-flex items-center gap-1 text-[10px] text-emerald-500 font-medium">
+                <Timer className="w-3 h-3" />
+                {mttr}
               </span>
             )}
           </div>
