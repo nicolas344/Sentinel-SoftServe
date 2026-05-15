@@ -113,6 +113,21 @@ export default function Login() {
             Ver guía de configuración
           </Link>
         </p>
+
+        {/* Client branding */}
+        <div className="flex items-center justify-center gap-2 mt-6 pt-5 border-t border-slate-800/60">
+          <span className="text-[10px] text-slate-700 uppercase tracking-wider">Cliente</span>
+          <div className="w-px h-3 bg-slate-800" />
+          <img src="/softserve-logo.jpeg" alt="SoftServe" className="w-5 h-5 rounded-md object-cover opacity-80" />
+          <a
+            href="https://www.softserveinc.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-slate-500 hover:text-slate-400 transition-colors font-semibold"
+          >
+            SoftServe
+          </a>
+        </div>
       </div>
     </div>
   )

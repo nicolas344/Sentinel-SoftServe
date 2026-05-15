@@ -406,13 +406,25 @@ export default function Dashboard() {
 
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <header className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-slate-800 bg-slate-950/95 backdrop-blur-sm">
-        {/* Left: brand + counters */}
+        {/* Left: brand + client + counters */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-lg bg-sky-600/20 border border-sky-500/30 flex items-center justify-center">
               <Shield className="w-3.5 h-3.5 text-sky-400" />
             </div>
             <span className="text-sm font-bold text-slate-100">Sentinel</span>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-1.5 pl-3 border-l border-slate-800">
+            <img src="/softserve-logo.jpeg" alt="SoftServe" className="w-5 h-5 rounded-md object-cover opacity-90" />
+            <a
+              href="https://www.softserveinc.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-slate-500 hover:text-slate-400 transition-colors font-medium"
+            >
+              SoftServe
+            </a>
           </div>
 
           {activeCount > 0 && (
