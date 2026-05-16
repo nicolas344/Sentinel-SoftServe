@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_guardrails.py -v --tb=short)",
+      "Bash(python -m pytest --tb=short -q)",
+      "Bash(python -m ruff check services/agents/guardrails.py services/agents/supervisor.py tests/test_guardrails.py)",
+      "Bash(pip install *)"
+    ]
+  }
+}

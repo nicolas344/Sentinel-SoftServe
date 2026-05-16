@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import actions, alerts, incidents
+from routers import actions, alerts, health, incidents
 
 app = FastAPI(
     title="Sentinel-SoftServe API",
@@ -27,6 +27,7 @@ app.add_middleware(
 app.include_router(incidents.router)
 app.include_router(alerts.router)
 app.include_router(actions.router)
+app.include_router(health.router)
 
 
 @app.get("/")
