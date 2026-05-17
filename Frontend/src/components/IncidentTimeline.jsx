@@ -1,5 +1,4 @@
-import { useMemo, useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { useMemo } from 'react'
 
 // Orden canónico del ciclo de vida de un incidente
 const STATUS_ORDER = [
@@ -36,7 +35,7 @@ function extractToolsFromReasoning(reasoning) {
     .filter((t) => t && t !== 'ninguna')
 }
 
-function buildEvents(incident, eventTimestamps = {}) {
+function buildEvents(incident) {
   const current = statusIndex(incident.status)
   const isTerminal = incident.status === 'resolved' || incident.status === 'failed'
   const tools = extractToolsFromReasoning(incident.agent_reasoning)
@@ -47,16 +46,13 @@ function buildEvents(incident, eventTimestamps = {}) {
   }
   const isCurrent = (s) => !isTerminal && incident.status === s
 
-  // Timestamp: usa la tabla incident_events si está disponible, si no cae en los campos del incidente
-  const ts = (status, fallback) => fmt(eventTimestamps[status] || fallback || null)
-
   const events = []
 
   // 1. Detectado
   events.push({
     key: 'detected',
     label: 'Detectado',
-    timestamp: ts('detected', incident.created_at),
+    timestamp: fmt(incident.created_at),
     description: `Incidente creado · severidad ${incident.severity}${incident.server_name ? ` · ${incident.server_name}` : ''}`,
     done: reached('detected'),
     active: isCurrent('detected'),
@@ -67,7 +63,7 @@ function buildEvents(incident, eventTimestamps = {}) {
   events.push({
     key: 'investigating',
     label: 'Clasificando',
-    timestamp: ts('investigating', null),
+    timestamp: null,
     description: incident.incident_type
       ? `Tipo detectado: ${incident.incident_type}`
       : 'El agente está analizando el título, severidad y logs…',
@@ -80,7 +76,7 @@ function buildEvents(incident, eventTimestamps = {}) {
   events.push({
     key: 'analyzed',
     label: 'Investigado',
-    timestamp: ts('analyzed', null),
+    timestamp: null,
     description: tools.length > 0
       ? `Tools usadas: ${tools.map((t) => `\`${t}\``).join(', ')}`
       : incident.incident_type
@@ -96,7 +92,7 @@ function buildEvents(incident, eventTimestamps = {}) {
     events.push({
       key: 'awaiting_approval',
       label: 'Esperando aprobación',
-      timestamp: ts('awaiting_approval', null),
+      timestamp: null,
       description: incident.proposed_action
         ? `Acción propuesta: \`${incident.proposed_action}\``
         : 'Acción pendiente de revisión',
@@ -111,7 +107,7 @@ function buildEvents(incident, eventTimestamps = {}) {
     events.push({
       key: 'executing_solution',
       label: 'Acción ejecutada',
-      timestamp: ts('executing_solution', incident.executed_at),
+      timestamp: fmt(incident.executed_at),
       description: incident.proposed_action
         ? `\`${incident.proposed_action}\``
         : 'Comando ejecutado',
@@ -126,7 +122,7 @@ function buildEvents(incident, eventTimestamps = {}) {
     events.push({
       key: 'verifying',
       label: 'Verificando servicio',
-      timestamp: ts('verifying', null),
+      timestamp: null,
       description: 'El agente comprueba si el contenedor volvió a estado running',
       done: reached('verifying'),
       active: isCurrent('verifying'),
@@ -139,7 +135,7 @@ function buildEvents(incident, eventTimestamps = {}) {
     events.push({
       key: 'resolved',
       label: 'Resuelto',
-      timestamp: ts('resolved', incident.resolved_at),
+      timestamp: fmt(incident.resolved_at),
       description: 'Servicio verificado y recuperado correctamente',
       done: true,
       active: false,
@@ -149,7 +145,7 @@ function buildEvents(incident, eventTimestamps = {}) {
     events.push({
       key: 'failed',
       label: 'Falló',
-      timestamp: ts('failed', null),
+      timestamp: null,
       description: incident.action_error
         ? incident.action_error.replace(/^\[RECHAZADO\]\s*|^\[POSPUESTO\]\s*/i, '').slice(0, 120)
         : 'La acción no pudo completarse',
@@ -242,31 +238,7 @@ function TimelineEvent({ event, isLast }) {
 }
 
 export default function IncidentTimeline({ incident }) {
-  const [eventTimestamps, setEventTimestamps] = useState({})
-
-  useEffect(() => {
-    let cancelled = false
-    async function loadEvents() {
-      const { data, error } = await supabase
-        .from('incident_events')
-        .select('status, occurred_at')
-        .eq('incident_id', incident.id)
-        .order('occurred_at', { ascending: true })
-      if (error || cancelled) return
-      const map = {}
-      for (const row of data) {
-        if (!map[row.status]) map[row.status] = row.occurred_at
-      }
-      setEventTimestamps(map)
-    }
-    loadEvents()
-    return () => { cancelled = true }
-  }, [incident.id])
-
-  const events = useMemo(
-    () => buildEvents(incident, eventTimestamps),
-    [incident, eventTimestamps]
-  )
+  const events = useMemo(() => buildEvents(incident), [incident])
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-lg p-4">

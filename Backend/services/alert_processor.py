@@ -45,51 +45,6 @@ SEVERITY_MAP = {
     "PostgresDatabaseSizeGrowth":      "medium",
 }
 
-# Etiquetas descriptivas para el título generado en el incidente.
-# Se usan en lugar del annotation "summary" para evitar que aparezcan
-# rutas completas de cAdvisor con SHA-256 cuando el contenedor no tiene nombre.
-ALERT_TITLE_LABEL = {
-    # Docker
-    "ContainerCrashed":            "App crash detectado",
-    "ContainerOOMKilled":          "OOM Kill detectado",
-    "ContainerHighMemory":         "Memoria alta",
-    "ContainerCPUThrottling":      "CPU throttling",
-    "ContainerRestartLoop":        "Restart loop detectado",
-    "ContainerUnhealthy":          "Health check fallando",
-    "ContainerNetworkErrors":      "Errores de red",
-    "ContainerNetworkPacketDrop":  "Pérdida de paquetes",
-    "ContainerDiskPressure":       "Presión de disco",
-    "ContainerHighSwap":           "Uso alto de swap",
-    # Podman
-    "PodmanContainerCrashed":      "App crash detectado",
-    "PodmanContainerOOMKilled":    "OOM Kill detectado",
-    "PodmanContainerHighMemory":   "Memoria alta",
-    "PodmanContainerCPUThrottling": "CPU elevada",
-    "PodmanContainerRestartLoop":  "Restart loop detectado",
-    "PodmanContainerUnhealthy":    "Contenedor detenido",
-    # PostgreSQL
-    "PostgresConnectionsExhausted":    "Conexiones agotadas",
-    "PostgresLongRunningTransaction":   "Transacción larga detectada",
-    "PostgresDeadLocks":                "Deadlock detectado",
-    "PostgresReplicationLag":           "Replication lag alto",
-    "PostgresLowCacheHitRatio":         "Cache hit ratio bajo",
-    "PostgresDatabaseSizeGrowth":       "Crecimiento acelerado de BD",
-}
-
-
-def _build_title(alert_name: str, target: str, source_type: str) -> str:
-    """
-    Genera un título legible: "{target}: {descripción del alert}".
-    Evita que rutas de cAdvisor con SHA-256 aparezcan en el título.
-    """
-    label = ALERT_TITLE_LABEL.get(alert_name)
-    if label:
-        return f"{target}: {label}"
-    # Fallback: usar el nombre de la alerta humanizado (CamelCase → palabras)
-    import re
-    human = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", alert_name)
-    return f"{target}: {human}"
-
 
 def _has_active_incident(target: str) -> bool:
     """
@@ -194,7 +149,7 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
 
     alert_name = labels.get("alertname", "UnknownAlert")
     severity   = labels.get("severity") or SEVERITY_MAP.get(alert_name, "medium")
-    summary    = annotations.get("summary", f"Alerta: {alert_name}")  # usado solo como fallback de logs
+    summary    = annotations.get("summary", f"Alerta: {alert_name}")
 
     # Determinar source_type y container_runtime desde los labels de la alerta
     source_type = labels.get("source_type", "container")
@@ -245,10 +200,8 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
         logger.info(f"Incidente activo ya existe para '{target}' ({alert_name}) — omitiendo duplicado")
         return None
 
-    title = _build_title(alert_name, target, source_type)
-
     incident = {
-        "title":             title,
+        "title":             summary,
         "target":            target,
         "severity":          severity,
         "status":            "detected",
@@ -265,34 +218,10 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
             f"Incidente creado — id: {incident_id[:8]}, target: {target}, "
             f"source: {source_type}, runtime: {container_runtime}, severidad: {severity}"
         )
+        return (incident_id, target, logs, severity, summary, container_runtime or "")
     except Exception as e:
         logger.error(f"Error al crear incidente en Supabase: {e}")
         return None
-
-    # Registrar evento inicial
-    from services.incident_events import record_event
-    record_event(incident_id, "detected")
-
-    # Guardar snapshot de métricas al momento de detección (best-effort).
-    # Permite mostrar datos en MetricsPanel aunque el contenedor ya no exista.
-    try:
-        from services.prometheus import get_container_metrics, get_postgres_metrics
-        if source_type == "database":
-            datname = target.replace("postgres/", "").strip()
-            snapshot = get_postgres_metrics(datname)
-        else:
-            snapshot = get_container_metrics(target)
-
-        all_null = all(v is None for k, v in snapshot.items() if k != "type")
-        if not all_null:
-            supabase.table("incidents").update(
-                {"metrics_snapshot": snapshot}
-            ).eq("id", incident_id).execute()
-            logger.info(f"Snapshot de métricas guardado para {incident_id[:8]}")
-    except Exception as e:
-        logger.warning(f"No se pudo guardar snapshot de métricas para {incident_id[:8]}: {e}")
-
-    return (incident_id, target, logs, severity, title, container_runtime or "")
 
 
 def _resolve_incident(target: str) -> None:
@@ -316,8 +245,5 @@ def _resolve_incident(target: str) -> None:
         )
         if response.data:
             logger.info(f"Incidente resuelto automáticamente — target: {target}")
-            from services.incident_events import record_event
-            for row in response.data:
-                record_event(row["id"], "resolved")
     except Exception as e:
         logger.error(f"Error resolviendo incidente para '{target}': {e}")

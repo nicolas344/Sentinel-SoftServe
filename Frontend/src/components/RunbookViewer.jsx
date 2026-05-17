@@ -1,86 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
-// Parsea el texto raw del runbook en secciones { key, value, items[] }
-function parseRunbookContent(content) {
-  if (!content) return []
-  const lines = content.split('\n')
-  const sections = []
-  let current = null
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed) continue
-    const headerMatch = trimmed.match(/^([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ_\s]{1,28}):\s*(.*)$/)
-    if (headerMatch && !/^\d/.test(headerMatch[1])) {
-      current = { key: headerMatch[1].trim(), value: headerMatch[2].trim(), items: [] }
-      sections.push(current)
-    } else if (current) {
-      const bullet = trimmed.match(/^[-*•]\s+(.+)$/) || trimmed.match(/^(\d+)\.\s+(.+)$/)
-      if (bullet) {
-        current.items.push({ num: bullet[2] ? bullet[1] : null, text: bullet[2] || bullet[1] })
-      } else if (current.value === '' && current.items.length === 0) {
-        current.value = trimmed
-      } else {
-        current.items.push({ num: null, text: trimmed })
-      }
-    }
-  }
-  return sections
-}
-
-const SECTION_ACCENT = {
-  'TIPO':    'text-sky-400',
-  'SEÑALES': 'text-amber-400',
-  'CAUSA':   'text-red-400',
-  'PASOS':   'text-emerald-400',
-  'ACCIÓN':  'text-emerald-400',
-  'ACCIONES':'text-emerald-400',
-  'NOTAS':   'text-slate-400',
-  'FUENTE':  'text-slate-500',
-}
-
-function RunbookContent({ content }) {
-  const sections = parseRunbookContent(content)
-  if (sections.length === 0) {
-    return (
-      <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap leading-relaxed">
-        {content}
-      </pre>
-    )
-  }
-  return (
-    <div className="space-y-3">
-      {sections.map((sec, i) => {
-        const accentKey = Object.keys(SECTION_ACCENT).find(k => sec.key.toUpperCase().startsWith(k))
-        const accent = SECTION_ACCENT[accentKey] || 'text-slate-400'
-        return (
-          <div key={i}>
-            <p className={`text-[10px] font-semibold uppercase tracking-wider mb-1 ${accent}`}>
-              {sec.key}
-            </p>
-            {sec.value && (
-              <p className="text-xs text-slate-300 leading-relaxed">{sec.value}</p>
-            )}
-            {sec.items.length > 0 && (
-              <ul className="mt-1 space-y-1">
-                {sec.items.map((item, j) => (
-                  <li key={j} className="flex items-start gap-2 text-xs text-slate-400 leading-relaxed">
-                    <span className="shrink-0 text-slate-600 font-mono mt-0.5">
-                      {item.num ? `${item.num}.` : '·'}
-                    </span>
-                    <span>{item.text}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 async function fetchRunbooks(incidentId, q) {
@@ -170,9 +90,9 @@ export default function RunbookViewer({ incidentId }) {
               </span>
             </button>
             {expanded === i && (
-              <div className="px-4 py-3 bg-slate-950 max-h-72 overflow-y-auto">
-                <RunbookContent content={rb.content} />
-              </div>
+              <pre className="px-4 py-3 text-xs text-slate-300 font-mono whitespace-pre-wrap bg-slate-950 overflow-x-auto max-h-72 overflow-y-auto leading-relaxed">
+                {rb.content}
+              </pre>
             )}
           </div>
         ))}

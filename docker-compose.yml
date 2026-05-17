@@ -14,7 +14,6 @@ services:
       LOKI_URL: "http://loki:3100"
       LANGFUSE_HOST: "http://langfuse:3000"
       PROMETHEUS_URL: "http://prometheus:9090"
-      ALERTMANAGER_URL: "http://alertmanager:9093"
       PYTHONDONTWRITEBYTECODE: "1"   # evita __pycache__ en código fuente → no dispara WatchFiles
       # Socket de Podman: en Linux rootless el UID suele ser 1000.
       # Si el host usa un UID diferente, ajustar la ruta del volumen y esta variable.
