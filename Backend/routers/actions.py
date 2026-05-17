@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from auth import get_current_user
 from db.supabase_client import supabase
+from services.incident_events import record_event
 from services.verification import verify_resolution
 
 router = APIRouter(prefix="/api", tags=["actions"])
@@ -257,6 +258,7 @@ async def execute_action(
     is_postgres  = requested_command.split()[0] in _PG_ALLOWED_FUNCS or source_type == "database"
 
     supabase.table("incidents").update({"status": "executing_solution"}).eq("id", body.incident_id).execute()
+    record_event(body.incident_id, "executing_solution")
     executed_at = datetime.now(tz=timezone.utc).isoformat()
 
     # ── Rama Postgres ─────────────────────────────────────────────────────────
@@ -272,6 +274,7 @@ async def execute_action(
                 "action_error": stderr or None,
                 "executed_at": executed_at,
             }).eq("id", body.incident_id).execute()
+            record_event(body.incident_id, "verifying")
 
             current_reasoning = (incident.get("agent_reasoning") or "").strip()
             background_tasks.add_task(
@@ -296,6 +299,7 @@ async def execute_action(
             "action_error": stderr,
             "executed_at": executed_at,
         }).eq("id", body.incident_id).execute()
+        record_event(body.incident_id, "failed")
 
         return ExecuteActionResponse(
             incident_id=body.incident_id,
@@ -371,10 +375,9 @@ async def execute_action(
             "action_error": stderr,
             "executed_at": executed_at,
         }).eq("id", body.incident_id).execute()
+        record_event(body.incident_id, "verifying")
 
         current_reasoning = (incident.get("agent_reasoning") or "").strip()
-        # Preferir el runtime del binario ejecutado (docker/podman) sobre el campo del incidente
-        # para que verify_resolution sepa qué socket usar.
         container_runtime = command_tokens[0]  # "docker" o "podman"
         background_tasks.add_task(
             verify_resolution,
@@ -399,6 +402,7 @@ async def execute_action(
         "action_error": stderr,
         "executed_at": executed_at,
     }).eq("id", body.incident_id).execute()
+    record_event(body.incident_id, "failed")
 
     return ExecuteActionResponse(
         incident_id=body.incident_id,
@@ -446,6 +450,7 @@ async def reject_action(
         "action_error": f"[RECHAZADO] {note}",
         "executed_at": datetime.now(tz=timezone.utc).isoformat(),
     }).eq("id", incident_id).execute()
+    record_event(incident_id, "failed")
     return {"incident_id": incident_id, "status": "failed", "note": note}
 
 
@@ -461,4 +466,5 @@ async def postpone_action(
         "status": "analyzed",
         "action_error": f"[POSPUESTO] {note}",
     }).eq("id", incident_id).execute()
+    record_event(incident_id, "analyzed")
     return {"incident_id": incident_id, "status": "analyzed", "note": note}
