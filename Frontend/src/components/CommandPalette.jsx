@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react'
 import { Search, Plus, Settings, ArrowRight, Terminal } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
@@ -32,12 +32,12 @@ export default function CommandPalette({ open, onClose, incidents, onSelectIncid
   const inputRef = useRef(null)
   const navigate = useNavigate()
 
-  // Focus on open
-  useEffect(() => {
+  // Reset state and focus on open
+  useLayoutEffect(() => {
     if (open) {
       setQuery('')
       setActiveIdx(0)
-      setTimeout(() => inputRef.current?.focus(), 30)
+      inputRef.current?.focus()
     }
   }, [open])
 
@@ -58,7 +58,7 @@ export default function CommandPalette({ open, onClose, incidents, onSelectIncid
         .slice(0, 7)
     : incidents.slice(0, 5)
 
-  const quickActions = [
+  const quickActions = useMemo(() => [
     {
       icon: Plus,
       label: 'Nuevo incidente',
@@ -71,12 +71,12 @@ export default function CommandPalette({ open, onClose, incidents, onSelectIncid
       shortcut: 'S',
       action: () => { onClose(); navigate('/setup') },
     },
-  ]
+  ], [onClose, onNewIncident, navigate])
 
-  const allItems = [
+  const allItems = useMemo(() => [
     ...filteredIncidents.map((i, idx) => ({ type: 'incident', data: i, idx })),
     ...(!query ? quickActions.map((a, idx) => ({ type: 'action', data: a, idx: filteredIncidents.length + idx })) : []),
-  ]
+  ], [filteredIncidents, quickActions, query])
 
   // Arrow key navigation
   useEffect(() => {

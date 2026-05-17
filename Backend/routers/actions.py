@@ -12,8 +12,8 @@ from pydantic import BaseModel, Field
 
 from auth import get_current_user
 from db.supabase_client import supabase
-from services.verification import verify_resolution
 from services.incident_events import record_event
+from services.verification import verify_resolution
 
 router = APIRouter(prefix="/api", tags=["actions"])
 
