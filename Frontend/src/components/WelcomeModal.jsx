@@ -181,6 +181,3 @@ export default function WelcomeModal({ onClose }) {
   )
 }
 
-export function shouldShowWelcome() {
-  return !localStorage.getItem(STORAGE_KEY)
-}

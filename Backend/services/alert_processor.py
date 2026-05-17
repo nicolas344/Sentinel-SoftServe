@@ -194,7 +194,7 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
 
     alert_name = labels.get("alertname", "UnknownAlert")
     severity   = labels.get("severity") or SEVERITY_MAP.get(alert_name, "medium")
-    summary    = annotations.get("summary", f"Alerta: {alert_name}")  # usado solo como fallback de logs
+
 
     # Determinar source_type y container_runtime desde los labels de la alerta
     source_type = labels.get("source_type", "container")

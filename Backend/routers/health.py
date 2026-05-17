@@ -20,7 +20,7 @@ _SERVICES = {
 def _ping(name: str, url: str) -> dict:
     start = time.monotonic()
     try:
-        r = requests.get(url, timeout=3)
+        requests.get(url, timeout=3)
         latency_ms = round((time.monotonic() - start) * 1000)
         # Any HTTP response (even 401/404) means the service is reachable
         return {"status": "ok", "url": url, "latency_ms": latency_ms}
