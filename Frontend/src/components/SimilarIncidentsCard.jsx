@@ -66,12 +66,15 @@ export default function SimilarIncidentsCard({ incidentId, onApplySolution }) {
   }
 
   if (similar.length === 0) {
-    return null
+    return (
+      <p className="text-xs text-slate-500 py-2">
+        No hay incidentes similares en el historial todavía.
+      </p>
+    )
   }
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Incidentes similares</p>
       {similar.map((item) => {
         const meta = item.metadata || {}
         const tools = meta.tools_used ? meta.tools_used.split(',').filter(Boolean) : []

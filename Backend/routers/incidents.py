@@ -1,4 +1,3 @@
-import math
 from typing import Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -15,42 +14,24 @@ from services.prometheus import get_container_metrics, get_postgres_metrics
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 
 
-_TERMINAL_STATUSES = ("resolved", "failed")
-
-
 @router.get("/")
 async def list_incidents(
     source_type:       Optional[str] = None,
     container_runtime: Optional[str] = None,
     severity:          Optional[str] = None,
     status:            Optional[str] = None,
-    page:              int = 1,
-    limit:             int = 20,
     user=Depends(get_current_user),
 ):
-    q = supabase.table("incidents").select("*", count="exact")
+    q = supabase.table("incidents").select("*")
     if source_type:
         q = q.eq("source_type", source_type)
     if container_runtime:
         q = q.eq("container_runtime", container_runtime)
     if severity:
         q = q.eq("severity", severity)
-    # "active" is an alias for all non-terminal statuses
-    if status == "active":
-        q = q.not_.in_("status", list(_TERMINAL_STATUSES))
-    elif status:
+    if status:
         q = q.eq("status", status)
-
-    offset = (page - 1) * limit
-    response = q.order("created_at", desc=True).range(offset, offset + limit - 1).execute()
-    total = response.count or 0
-    return {
-        "data":  response.data,
-        "total": total,
-        "page":  page,
-        "limit": limit,
-        "pages": math.ceil(total / limit) if total else 0,
-    }
+    return q.order("created_at", desc=True).execute().data
 
 
 @router.get("/{incident_id}")

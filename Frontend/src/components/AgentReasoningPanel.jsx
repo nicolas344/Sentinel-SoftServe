@@ -60,40 +60,16 @@ const AGENT_STYLES = {
 }
 
 // Cada sección del markdown → color del acento y título corto para mostrar
-// Las claves incluyen variantes del backend (LAB 1, LAB 2, etc.) ya normalizadas.
 const SECTION_STYLES = {
   'causa raíz':              { accent: 'border-l-red-500/60',     label: 'Causa raíz',        tone: 'text-red-300' },
-  'causa':                   { accent: 'border-l-red-500/60',     label: 'Causa raíz',        tone: 'text-red-300' },
   'evidencia':               { accent: 'border-l-amber-500/60',   label: 'Evidencia',          tone: 'text-amber-300' },
   '¿ya habíamos visto esto?': { accent: 'border-l-violet-500/60',  label: 'Memoria del agente', tone: 'text-violet-300' },
-  'ya habíamos visto esto':  { accent: 'border-l-violet-500/60',  label: 'Memoria del agente', tone: 'text-violet-300' },
-  'memoria':                 { accent: 'border-l-violet-500/60',  label: 'Memoria del agente', tone: 'text-violet-300' },
-  'acciones recomendadas':   { accent: 'border-l-emerald-500/60', label: 'Acciones recomendadas', tone: 'text-emerald-300' },
-  'acciones':                { accent: 'border-l-emerald-500/60', label: 'Acciones recomendadas', tone: 'text-emerald-300' },
+  'acciones recomendadas':   { accent: 'border-l-emerald-500/60', label: 'Acciones',          tone: 'text-emerald-300' },
   'evaluación de urgencia':  { accent: 'border-l-orange-500/60',  label: 'Urgencia',           tone: 'text-orange-300' },
-  'evaluación':              { accent: 'border-l-orange-500/60',  label: 'Urgencia',           tone: 'text-orange-300' },
-  'urgencia':                { accent: 'border-l-orange-500/60',  label: 'Urgencia',           tone: 'text-orange-300' },
   'clasificación inicial':   { accent: 'border-l-sky-500/60',     label: 'Clasificación',      tone: 'text-sky-300' },
-  'clasificación':           { accent: 'border-l-sky-500/60',     label: 'Clasificación',      tone: 'text-sky-300' },
-  'investigación completa':  { accent: 'border-l-blue-500/60',    label: 'Investigación',      tone: 'text-blue-300' },
   'investigación':           { accent: 'border-l-blue-500/60',    label: 'Investigación',      tone: 'text-blue-300' },
-  'análisis':                { accent: 'border-l-blue-500/60',    label: 'Análisis',           tone: 'text-blue-300' },
-  'diagnóstico':             { accent: 'border-l-blue-500/60',    label: 'Diagnóstico',        tone: 'text-blue-300' },
-  'error de routing':        { accent: 'border-l-red-500/60',     label: 'Error de routing',   tone: 'text-red-300' },
+  'error de routing':        { accent: 'border-l-red-500/60',     label: 'Routing',            tone: 'text-red-300' },
   'error':                   { accent: 'border-l-red-500/60',     label: 'Error',              tone: 'text-red-300' },
-  'resumen':                 { accent: 'border-l-slate-500/60',   label: 'Resumen',            tone: 'text-slate-300' },
-  'contexto':                { accent: 'border-l-slate-500/60',   label: 'Contexto',           tone: 'text-slate-300' },
-}
-
-// Busca el estilo de una sección con matching flexible (exact → startsWith → includes)
-function getSectionStyle(title) {
-  const normalized = title.toLowerCase().replace(/\s*\([^)]*\)/g, '').trim()
-  if (SECTION_STYLES[normalized]) return { ...SECTION_STYLES[normalized] }
-  const partialKey = Object.keys(SECTION_STYLES).find(
-    (k) => normalized.startsWith(k) || normalized.includes(k)
-  )
-  if (partialKey) return { ...SECTION_STYLES[partialKey] }
-  return { accent: 'border-l-slate-600', label: title, tone: 'text-slate-300' }
 }
 
 // ── Parser de markdown ligero ────────────────────────────────────────────────
@@ -398,7 +374,12 @@ function Timeline({ status }) {
 }
 
 function SectionCard({ title, body, index = 0 }) {
-  const style = getSectionStyle(title)
+  const titleKey = title.toLowerCase().replace(/\s*\([^)]*\)/g, '').trim()
+  const style = SECTION_STYLES[titleKey] || {
+    accent: 'border-l-slate-600',
+    label: title,
+    tone: 'text-slate-300',
+  }
 
   return (
     <div

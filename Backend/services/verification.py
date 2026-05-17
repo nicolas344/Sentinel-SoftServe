@@ -22,7 +22,6 @@ import time
 from datetime import datetime, timezone
 
 from db.supabase_client import supabase
-from services.incident_events import record_event
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +71,6 @@ def verify_resolution(
             update["resolved_at"] = resolved_at
 
         supabase.table("incidents").update(update).eq("id", incident_id).execute()
-        record_event(incident_id, new_status)
         logger.info(f"[Verification] {incident_id[:8]} → {new_status}")
 
     except Exception as exc:
@@ -88,7 +86,6 @@ def verify_resolution(
             "agent_reasoning": (current_reasoning or "") + warning,
             "resolved_at": datetime.now(tz=timezone.utc).isoformat(),
         }).eq("id", incident_id).execute()
-        record_event(incident_id, "resolved")
 
 
 # ── Inspección de contenedores Docker/Podman ──────────────────────────────────

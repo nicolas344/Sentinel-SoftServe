@@ -22,10 +22,8 @@ from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
 from db.supabase_client import supabase
-from services.agents import guardrails
 from services.agents.base import IncidentContext, InvestigationResult
 from services.agents.registry import find_agent_for, list_agents
-from services.incident_events import record_event
 
 logger = logging.getLogger(__name__)
 _MEMORY_WRITE_TIMEOUT_SEC = 8
@@ -199,25 +197,8 @@ def run_triage(ctx: IncidentContext) -> None:
             logger.warning(f"No se pudo crear traza LangFuse: {e}")
 
     try:
-        # ── Guardrail de ENTRADA ──────────────────────────────────────────────
-        # Recorta logs y neutraliza intentos de prompt injection ANTES de que
-        # el LLM vea el incidente.
-        input_check = guardrails.check_input(ctx.title, ctx.logs)
-        ctx.logs = input_check.sanitized
-        if not input_check.passed:
-            logger.warning(
-                f"[Supervisor] Guardrail de entrada activado en {ctx.incident_id[:8]}: "
-                f"{input_check.violations}"
-            )
-
-        # 1. Clasificación (Lab 1 — Alert Intake)
+        # 1. Clasificación
         incident_type, class_reason = _classify(ctx)
-
-        # ── Guardrail de CLASIFICACIÓN ────────────────────────────────────────
-        # El tipo de incidente debe pertenecer al catálogo cerrado; si el LLM
-        # inventó una categoría, se fuerza a 'unknown'.
-        type_check = guardrails.check_incident_type(incident_type)
-        incident_type = type_check.sanitized
         ctx.incident_type = incident_type
 
         _update_incident(ctx.incident_id, {
@@ -228,7 +209,6 @@ def run_triage(ctx: IncidentContext) -> None:
                 f"**Tipo detectado:** `{incident_type}`\n\n{class_reason}"
             ),
         })
-        record_event(ctx.incident_id, "investigating")
 
         # 2. Routing
         agent = find_agent_for(ctx)
@@ -246,48 +226,20 @@ def run_triage(ctx: IncidentContext) -> None:
                     f"## Error de routing\n\n{msg}"
                 ),
             })
-            record_event(ctx.incident_id, "analyzed")
             return
 
         logger.info(f"[Supervisor] Enrutando {ctx.incident_id[:8]} → '{agent.name}'")
 
-        # 3. Investigación (Lab 2 — Investigation)
+        # 3. Investigación
         result = agent.investigate(ctx)
-
-        # ── Guardrail de SALIDA / SCOPE ───────────────────────────────────────
-        # Verifica que el análisis del agente no se haya desviado del dominio
-        # DevOps. Si se desvió, antepone una advertencia visible al ingeniero.
-        output_check = guardrails.check_analysis_output(result.analysis)
-        result.analysis = output_check.sanitized
-        if not output_check.passed:
-            logger.warning(
-                f"[Supervisor] Guardrail de salida activado en {ctx.incident_id[:8]}: "
-                f"{output_check.violations}"
-            )
 
         # 4. Persistencia final
         full_reasoning = _render_final_reasoning(class_reason, incident_type, agent.name, result)
         proposed_action = _build_proposed_action(ctx, incident_type)
-
-        # ── Guardrail de ACCIÓN ───────────────────────────────────────────────
-        # Re-valida de forma independiente que la acción propuesta esté en la
-        # lista blanca de comandos seguros. Si no lo está, NO se propone nada:
-        # el incidente queda en 'analyzed' para revisión manual del ingeniero.
-        action_check = guardrails.check_proposed_action(proposed_action)
-        if not action_check.passed:
-            logger.error(
-                f"[Supervisor] Guardrail de acción BLOQUEÓ '{proposed_action}' "
-                f"en {ctx.incident_id[:8]}: {action_check.violations}"
-            )
-            proposed_action = None
-        else:
-            proposed_action = action_check.sanitized or None
-
         _update_incident(ctx.incident_id, {
             "status": "analyzed",
             "agent_reasoning": full_reasoning,
         })
-        record_event(ctx.incident_id, "analyzed")
 
         # Pasa a gate de aprobacion cuando hay accion segura propuesta.
         if proposed_action:
@@ -295,7 +247,6 @@ def run_triage(ctx: IncidentContext) -> None:
                 "status": "awaiting_approval",
                 "proposed_action": proposed_action,
             })
-            record_event(ctx.incident_id, "awaiting_approval")
 
         # 5. Memoria episódica (best-effort, no bloqueante)
         pool = ThreadPoolExecutor(max_workers=1)
@@ -332,7 +283,6 @@ def run_triage(ctx: IncidentContext) -> None:
             ),
             "action_error": str(e),
         })
-        record_event(ctx.incident_id, "failed")
         if trace:
             trace.update(output={"error": str(e)})
     finally:
