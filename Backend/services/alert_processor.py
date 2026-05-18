@@ -6,6 +6,7 @@ from typing import Optional, Tuple
 import requests
 
 from db.supabase_client import supabase
+from services.postmortem.service import generate_post_mortem_for_incident
 
 logger = logging.getLogger(__name__)
 
@@ -319,5 +320,6 @@ def _resolve_incident(target: str) -> None:
             from services.incident_events import record_event
             for row in response.data:
                 record_event(row["id"], "resolved")
+                generate_post_mortem_for_incident(row["id"])
     except Exception as e:
         logger.error(f"Error resolviendo incidente para '{target}': {e}")

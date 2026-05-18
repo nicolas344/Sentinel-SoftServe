@@ -3,6 +3,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from auth import get_current_user
 from db.supabase_client import supabase
@@ -10,6 +11,12 @@ from models.incident import IncidentStatusUpdate
 from services.agents.memory.incidents import query_incidents
 from services.agents.memory.runbooks import query_runbooks
 from services.langgraph_engine import run_langgraph_engine
+from services.postmortem.formatters import format_incident_export_markdown
+from services.postmortem.service import (
+    build_incident_export_payload,
+    generate_post_mortem_for_incident,
+    save_post_mortem,
+)
 from services.prometheus import get_container_metrics, get_postgres_metrics
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
@@ -74,15 +81,106 @@ async def get_incident(incident_id: str, user=Depends(get_current_user)):
 async def update_incident_status(
     incident_id: str,
     body: IncidentStatusUpdate,
+    background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
 ):
+    update_fields = {"status": body.status}
+    if body.status == "resolved":
+        from datetime import datetime, timezone
+        update_fields["resolved_at"] = datetime.now(tz=timezone.utc).isoformat()
+
     response = (
         supabase.table("incidents")
-        .update({"status": body.status})
+        .update(update_fields)
         .eq("id", incident_id)
         .execute()
     )
+
+    if body.status == "resolved":
+        background_tasks.add_task(generate_post_mortem_for_incident, incident_id)
+
     return response.data
+
+
+class UpdatePostMortemRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=100000)
+
+
+@router.get("/{incident_id}/post-mortem")
+async def get_post_mortem(incident_id: str, user=Depends(get_current_user)):
+    try:
+        response = (
+            supabase.table("incidents")
+            .select("id,status,post_mortem_md,post_mortem_updated_at")
+            .eq("id", incident_id)
+            .single()
+            .execute()
+        )
+    except Exception:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
+
+    incident = response.data
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
+
+    content = (incident.get("post_mortem_md") or "").strip()
+    generated = False
+    if not content and incident.get("status") == "resolved":
+        generated_content = generate_post_mortem_for_incident(incident_id)
+        content = (generated_content or "").strip()
+        generated = bool(content)
+
+    return {
+        "incident_id": incident_id,
+        "status": incident.get("status"),
+        "content": content,
+        "updated_at": incident.get("post_mortem_updated_at"),
+        "generated": generated,
+    }
+
+
+@router.put("/{incident_id}/post-mortem")
+async def update_post_mortem(
+    incident_id: str,
+    body: UpdatePostMortemRequest,
+    user=Depends(get_current_user),
+):
+    try:
+        exists = (
+            supabase.table("incidents")
+            .select("id")
+            .eq("id", incident_id)
+            .single()
+            .execute()
+        )
+    except Exception:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
+
+    if not exists.data:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
+
+    save_post_mortem(incident_id, body.content)
+    return {"incident_id": incident_id, "saved": True}
+
+
+@router.get("/{incident_id}/export")
+async def export_incident(
+    incident_id: str,
+    format: str = "json",
+    user=Depends(get_current_user),
+):
+    payload = build_incident_export_payload(incident_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail="Incidente no encontrado")
+
+    fmt = (format or "json").lower()
+    if fmt == "json":
+        return JSONResponse(content=payload)
+    if fmt == "markdown":
+        md = format_incident_export_markdown(payload)
+        return PlainTextResponse(content=md, media_type="text/markdown")
+
+    raise HTTPException(status_code=400, detail="Formato no soportado. Usa 'json' o 'markdown'.")
 
 
 class CreateIncidentManual(BaseModel):
