@@ -46,7 +46,10 @@ def _get_timeline(incident_id: str) -> list[dict[str, Any]]:
             )
             return response.data or []
         except Exception as exc:
-            logger.warning(f"[postmortem.service] Timeline con created_at falló para {incident_id[:8]}: {exc}")
+            logger.warning(
+                f"[postmortem.service] Timeline con created_at falló"
+                f" para {incident_id[:8]}: {exc}"
+            )
 
     try:
         fallback = (
@@ -59,7 +62,8 @@ def _get_timeline(incident_id: str) -> list[dict[str, Any]]:
         return [{"status": e.get("status"), "created_at": None} for e in events]
     except Exception as fallback_exc:
         logger.warning(
-            f"[postmortem.service] No se pudo cargar timeline fallback {incident_id[:8]}: {fallback_exc}"
+            f"[postmortem.service] No se pudo cargar timeline fallback"
+            f" {incident_id[:8]}: {fallback_exc}"
         )
         return []
 
@@ -85,7 +89,9 @@ def generate_post_mortem_for_incident(incident_id: str, force: bool = False) -> 
     return generated
 
 
-def save_post_mortem(incident_id: str, content_md: str, incident: dict[str, Any] | None = None) -> None:
+def save_post_mortem(
+    incident_id: str, content_md: str, incident: dict[str, Any] | None = None
+) -> None:
     if not content_md.strip():
         return
 
@@ -96,7 +102,10 @@ def save_post_mortem(incident_id: str, content_md: str, incident: dict[str, Any]
             "post_mortem_updated_at": now_iso,
         }).eq("id", incident_id).execute()
     except Exception as exc:
-        logger.warning(f"[postmortem.service] No se pudo persistir post-mortem {incident_id[:8]}: {exc}")
+        logger.warning(
+            f"[postmortem.service] No se pudo persistir post-mortem"
+            f" {incident_id[:8]}: {exc}"
+        )
         return
 
     if not incident:
@@ -112,7 +121,10 @@ def build_incident_export_payload(incident_id: str) -> dict[str, Any] | None:
         return None
 
     timeline = _get_timeline(incident_id)
-    mttr = format_mttr(incident.get("created_at"), incident.get("resolved_at") or incident.get("updated_at"))
+    mttr = format_mttr(
+        incident.get("created_at"),
+        incident.get("resolved_at") or incident.get("updated_at"),
+    )
 
     decisions: list[dict[str, Any]] = []
     if incident.get("proposed_action"):

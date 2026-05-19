@@ -2,8 +2,8 @@ import math
 from typing import Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel, Field
 from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import BaseModel, Field
 
 from auth import get_current_user
 from db.supabase_client import supabase

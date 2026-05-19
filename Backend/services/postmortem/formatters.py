@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 
@@ -90,8 +90,10 @@ def format_incident_export_markdown(payload: dict[str, Any]) -> str:
     lines.extend(["", "## Decisions"])
     if decisions:
         for decision in decisions:
+            detail = decision.get('detail', '')
             lines.append(
-                f"- [{decision.get('at', 'N/A')}] {decision.get('type', 'decision')}: {decision.get('detail', '')}"
+                f"- [{decision.get('at', 'N/A')}]"
+                f" {decision.get('type', 'decision')}: {detail}"
             )
     else:
         lines.append("- Sin decisiones registradas")

@@ -1,4 +1,13 @@
-POST_MORTEM_TEMPLATE = """# Post-Mortem: {title}\n\n## Summary\n{summary}\n\n## Root Cause\n{root_cause}\n\n## Timeline\n{timeline}\n\n## Resolution\n{resolution}\n\n## MTTR\n{mttr}\n\n## Lessons Learned\n{lessons_learned}\n\n## Preventive Actions\n{preventive_actions}\n"""
+POST_MORTEM_TEMPLATE = (
+    "# Post-Mortem: {title}\n\n"
+    "## Summary\n{summary}\n\n"
+    "## Root Cause\n{root_cause}\n\n"
+    "## Timeline\n{timeline}\n\n"
+    "## Resolution\n{resolution}\n\n"
+    "## MTTR\n{mttr}\n\n"
+    "## Lessons Learned\n{lessons_learned}\n\n"
+    "## Preventive Actions\n{preventive_actions}\n"
+)
 
 
 def render_post_mortem_template(

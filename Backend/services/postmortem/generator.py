@@ -12,16 +12,28 @@ from services.postmortem.template import render_post_mortem_template
 logger = logging.getLogger(__name__)
 
 
-def _fallback_post_mortem(incident: dict[str, Any], timeline: list[dict[str, Any]], mttr: str) -> str:
+def _fallback_post_mortem(
+    incident: dict[str, Any], timeline: list[dict[str, Any]], mttr: str
+) -> str:
+    resolution = (
+        incident.get("action_result")
+        or "Se estabilizó el servicio y quedó en estado resolved."
+    )[:700]
     return render_post_mortem_template(
         title=incident.get("title") or "Incidente",
         summary=(incident.get("logs") or "No hay descripción disponible")[:700],
         root_cause="Pendiente de validación manual por el equipo de guardia.",
         timeline=format_timeline_markdown(timeline),
-        resolution=(incident.get("action_result") or "Se estabilizó el servicio y quedó en estado resolved.")[:700],
+        resolution=resolution,
         mttr=mttr,
-        lessons_learned="1. Mejorar observabilidad en componentes críticos.\n2. Definir runbooks más específicos por tipo de incidente.",
-        preventive_actions="1. Agregar alertas tempranas con umbrales más conservadores.\n2. Revisar capacidad y límites del recurso afectado.",
+        lessons_learned=(
+            "1. Mejorar observabilidad en componentes críticos.\n"
+            "2. Definir runbooks más específicos por tipo de incidente."
+        ),
+        preventive_actions=(
+            "1. Agregar alertas tempranas con umbrales más conservadores.\n"
+            "2. Revisar capacidad y límites del recurso afectado."
+        ),
     )
 
 
