@@ -850,12 +850,12 @@ export default function Dashboard() {
           <div className="w-96 shrink-0 flex flex-col overflow-hidden">
 
             {/* Tab bar */}
-            <div className="shrink-0 flex border-b border-slate-800 px-2">
+            <div className="shrink-0 flex border-b border-slate-800">
               {CONTEXT_TABS.map(({ id, label, Icon }) => (
                 <button
                   key={id}
                   onClick={() => setContextTab(id)}
-                  className={`flex items-center gap-1.5 px-3 py-3 text-xs font-medium border-b-2 transition-colors ${
+                  className={`flex-1 flex items-center justify-center gap-1 px-1 py-3 text-xs font-medium border-b-2 transition-colors ${
                     contextTab === id
                       ? 'border-sky-500 text-sky-400'
                       : 'border-transparent text-slate-500 hover:text-slate-300'
