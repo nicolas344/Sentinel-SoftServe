@@ -17,6 +17,8 @@ import SimilarIncidentsCard from '../components/SimilarIncidentsCard'
 import ApprovalBanner from '../components/ApprovalBanner'
 import IncidentTimeline from '../components/IncidentTimeline'
 import MetricsPanel from '../components/MetricsPanel'
+import PostMortemEditor from '../components/PostMortemEditor'
+import ExportModal from '../components/ExportModal'
 import WelcomeModal from '../components/WelcomeModal'
 import { shouldShowWelcome } from '../components/shouldShowWelcome'
 import CommandPalette from '../components/CommandPalette'
@@ -218,6 +220,7 @@ const CONTEXT_TABS = [
   { id: 'metrics',  label: 'Métricas', Icon: BarChart2 },
   { id: 'runbooks', label: 'Runbooks', Icon: BookOpen },
   { id: 'history',  label: 'Historial', Icon: History },
+  { id: 'postmortem', label: 'Post-Mortem', Icon: BookOpen },
 ]
 
 export default function Dashboard() {
@@ -244,6 +247,7 @@ export default function Dashboard() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showWelcome, setShowWelcome]         = useState(false)
   const [showCmdPalette, setShowCmdPalette]   = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
 
   const selectedId = searchParams.get('incident')
   const selected   = incidents.find((i) => i.id === selectedId) || null
@@ -669,6 +673,15 @@ export default function Dashboard() {
                   </button>
                 </div>
 
+                <div className="flex items-center justify-end mb-3">
+                  <button
+                    onClick={() => setShowExportModal(true)}
+                    className="text-xs border border-slate-700 rounded-lg px-3 py-1.5 text-slate-300 hover:border-slate-500 transition-colors"
+                  >
+                    Exportar incidente
+                  </button>
+                </div>
+
                 {/* Badges */}
                 <div className="flex items-center gap-2 flex-wrap mb-3">
                   {selected.severity && (
@@ -837,12 +850,12 @@ export default function Dashboard() {
           <div className="w-96 shrink-0 flex flex-col overflow-hidden">
 
             {/* Tab bar */}
-            <div className="shrink-0 flex border-b border-slate-800 px-2">
+            <div className="shrink-0 flex border-b border-slate-800">
               {CONTEXT_TABS.map(({ id, label, Icon }) => (
                 <button
                   key={id}
                   onClick={() => setContextTab(id)}
-                  className={`flex items-center gap-1.5 px-3 py-3 text-xs font-medium border-b-2 transition-colors ${
+                  className={`flex-1 flex items-center justify-center gap-1 px-1 py-3 text-xs font-medium border-b-2 transition-colors ${
                     contextTab === id
                       ? 'border-sky-500 text-sky-400'
                       : 'border-transparent text-slate-500 hover:text-slate-300'
@@ -899,12 +912,19 @@ export default function Dashboard() {
                   <IncidentTimeline incident={selected} />
                 </div>
               )}
+
+              {contextTab === 'postmortem' && (
+                <PostMortemEditor incident={selected} />
+              )}
             </div>
           </div>
         )}
       </div>
 
       {showCreateModal && <CreateIncidentModal onClose={() => setShowCreateModal(false)} />}
+      {showExportModal && selected && (
+        <ExportModal incident={selected} onClose={() => setShowExportModal(false)} />
+      )}
     </div>
   )
 }

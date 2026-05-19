@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 
 from db.supabase_client import supabase
 from services.incident_events import record_event
+from services.postmortem.service import generate_post_mortem_for_incident
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,8 @@ def verify_resolution(
 
         supabase.table("incidents").update(update).eq("id", incident_id).execute()
         record_event(incident_id, new_status)
+        if new_status == "resolved":
+            generate_post_mortem_for_incident(incident_id)
         logger.info(f"[Verification] {incident_id[:8]} → {new_status}")
 
     except Exception as exc:
@@ -89,6 +92,7 @@ def verify_resolution(
             "resolved_at": datetime.now(tz=timezone.utc).isoformat(),
         }).eq("id", incident_id).execute()
         record_event(incident_id, "resolved")
+        generate_post_mortem_for_incident(incident_id)
 
 
 # ── Inspección de contenedores Docker/Podman ──────────────────────────────────
