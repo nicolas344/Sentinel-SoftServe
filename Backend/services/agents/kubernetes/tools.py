@@ -225,7 +225,10 @@ def get_pod_logs(pod_name: str, namespace: str = "default", tail: int = 100) -> 
                 timestamps=True,
                 previous=True,
             )
-            return f"[Logs de ejecución anterior]\n{logs}" if logs else "(sin logs de ejecución anterior)"
+            return (
+                f"[Logs de ejecución anterior]\n{logs}" if logs
+                else "(sin logs de ejecución anterior)"
+            )
         except Exception as e2:
             return f"No se pudieron obtener logs de '{pod_name}': {e2}"
 
@@ -249,8 +252,15 @@ def get_pod_events(pod_name: str, namespace: str = "default") -> str:
             field_selector=f"involvedObject.name={pod_name}",
         )
 
+        from datetime import datetime, timezone
+        _epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
         result = []
-        for e in sorted(events.items, key=lambda x: x.last_timestamp or x.event_time or "", reverse=True)[:20]:
+        for e in sorted(
+            events.items,
+            key=lambda x: x.last_timestamp or x.event_time or _epoch,
+            reverse=True,
+        )[:20]:
             result.append({
                 "type": e.type,
                 "reason": e.reason,
@@ -284,7 +294,10 @@ def get_deployment_status(deployment_name: str, namespace: str = "default") -> s
         status = dep.status
         spec = dep.spec
         conditions = [
-            {"type": c.type, "status": c.status, "reason": c.reason or "", "message": (c.message or "")[:120]}
+            {
+                "type": c.type, "status": c.status,
+                "reason": c.reason or "", "message": (c.message or "")[:120],
+            }
             for c in (status.conditions or [])
         ]
 

@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 
-import chromadb
+import chromadb  # noqa: E402
 
 CHROMA_HOST = os.getenv("CHROMA_HOST", "http://localhost:8001")
 COLLECTION_NAME = "runbooks-kubernetes"
@@ -325,7 +325,7 @@ def seed():
     client = chromadb.HttpClient(host=host, port=port)
 
     try:
-        existing = client.get_collection(COLLECTION_NAME)
+        client.get_collection(COLLECTION_NAME)
         print(f"Colección '{COLLECTION_NAME}' ya existe — eliminando para re-seed...")
         client.delete_collection(COLLECTION_NAME)
     except Exception:

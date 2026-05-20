@@ -222,12 +222,26 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
     # Extraer identificador del target
     raw_id         = labels.get("id", "")
     container_id   = _extract_container_id(raw_id, container_runtime or "docker")
-    target         = labels.get("name") or (container_id[:12] if container_id else "unknown")
 
     # Para incidentes de base de datos el target es "postgres/<datname>"
     if source_type == "database":
         datname = labels.get("datname", "unknown")
         target  = f"postgres/{datname}"
+    elif container_runtime == "kubernetes":
+        # kube-state-metrics envía pod/deployment/node en lugar de name/id
+        pod        = labels.get("pod")
+        deployment = labels.get("deployment")
+        node       = labels.get("node")
+        if pod:
+            target = f"pod/{pod}"
+        elif deployment:
+            target = f"deployment/{deployment}"
+        elif node:
+            target = f"node/{node}"
+        else:
+            target = labels.get("name") or "unknown"
+    else:
+        target = labels.get("name") or (container_id[:12] if container_id else "unknown")
 
     raw_instance = labels.get("instance", "")
     if not raw_instance or raw_instance.startswith("cadvisor"):
@@ -289,7 +303,11 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
     # Guardar snapshot de métricas al momento de detección (best-effort).
     # Permite mostrar datos en MetricsPanel aunque el contenedor ya no exista.
     try:
-        from services.prometheus import get_container_metrics, get_kubernetes_metrics, get_postgres_metrics
+        from services.prometheus import (
+            get_container_metrics,
+            get_kubernetes_metrics,
+            get_postgres_metrics,
+        )
         if source_type == "database":
             datname = target.replace("postgres/", "").strip()
             snapshot = get_postgres_metrics(datname)

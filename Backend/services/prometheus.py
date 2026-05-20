@@ -108,9 +108,13 @@ def get_kubernetes_metrics(pod_name: str, namespace: str = "default") -> dict:
     ns_pod = f'namespace="{namespace}",pod="{pod_name}"'
 
     # CPU: uso en cores (kube-state-metrics no provee CPU directamente; usamos cAdvisor)
-    cpu_rate   = _query(f'sum(rate(container_cpu_usage_seconds_total{{{ns_pod},container!=""}}[5m]))')
+    cpu_rate   = _query(
+        f'sum(rate(container_cpu_usage_seconds_total{{{ns_pod},container!=""}}[5m]))'
+    )
     mem_usage  = _query(f'sum(container_memory_working_set_bytes{{{ns_pod},container!=""}})')
-    mem_limit  = _query(f'sum(container_spec_memory_limit_bytes{{{ns_pod},container!="",container!="POD"}})')
+    mem_limit  = _query(
+        f'sum(container_spec_memory_limit_bytes{{{ns_pod},container!="",container!="POD"}})'
+    )
 
     # kube-state-metrics
     restarts  = _query(f'sum(kube_pod_container_status_restarts_total{{{ns_pod}}})')

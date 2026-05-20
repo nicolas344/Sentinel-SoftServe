@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 _CONTAINER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 _PG_DATNAME_RE     = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$")
-_K8S_NAME_RE       = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}$")
+_K8S_NAME_RE       = re.compile(r"^[a-z0-9][a-z0-9\-.]{0,251}[a-z0-9]$|^[a-z0-9]$")
 
 _PG_ALLOWED_FUNCS    = {"pg_stat_activity", "pg_cancel_backend", "pg_terminate_backend"}
 _PODMAN_ALLOWED_CMDS = {"restart", "logs"}

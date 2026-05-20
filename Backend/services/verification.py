@@ -262,7 +262,8 @@ def _inspect_kubernetes(target: str) -> dict:
             dep = apps_v1.read_namespaced_deployment(name=resource_name, namespace=namespace)
             desired = dep.spec.replicas or 0
             available = dep.status.available_replicas or 0
-            healthy = available >= desired and desired > 0
+            # desired==0 es scale-to-zero intencional → estado válido
+            healthy = desired == 0 or available >= desired
             return {
                 "healthy": healthy,
                 "status": "available" if healthy else "degraded",
@@ -347,7 +348,9 @@ def _render_kubernetes_section(r: dict) -> str:
         summary = f"El recurso volvió a estado operativo. {r.get('details', '')}"
     else:
         heading = "Verificación de resolución — Workload Kubernetes no recuperado"
-        summary = f"{r.get('details', 'El recurso no está en buen estado.')} Requiere atención manual."
+        summary = (
+            f"{r.get('details', 'El recurso no está en buen estado.')} Requiere atención manual."
+        )
 
     rows = [
         f"| Estado | `{r['status']}` |",

@@ -28,7 +28,11 @@ services:
       # Solución: antes del demo ejecutar en el host:
       #   kubectl proxy --port=8555 --address=<LAN_IP> --accept-hosts='.*' &
       # Y ajustar esta variable con la IP LAN del host (ver: ifconfig | grep "inet 192")
-      K8S_PROXY_URL: "http://192.168.1.2:8555"
+      # K8S_PROXY_URL: dejar vacío por defecto. Solo necesario en Docker Desktop
+      # donde 127.0.0.1:6443 no es alcanzable desde contenedores.
+      # Configurar con la IP LAN del host antes del demo:
+      #   kubectl proxy --port=8555 --address=<LAN_IP> --accept-hosts='.*' &
+      K8S_PROXY_URL: ""
     ports:
       - "8000:8000"
     volumes:
@@ -40,7 +44,7 @@ services:
       # Kubeconfig de Kubernetes (para desarrollo local y acceso desde el backend).
       # En producción se usa in-cluster config (ServiceAccount automático de K8s).
       # En macOS/Linux: ~/.kube/config montado como read-only.
-      - ${KUBECONFIG:-${HOME}/.kube}:/root/.kube:ro
+      - ${HOME}/.kube:/root/.kube:ro
       - backend_env:/app/env        # aísla virtualenv del host → evita WatchFiles storms
       - chroma_cache:/root/.cache/chroma  # persiste modelo ONNX (~79MB) entre reinicios
     extra_hosts:

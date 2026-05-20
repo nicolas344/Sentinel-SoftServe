@@ -9,7 +9,8 @@ Mismo patrón ReAct acotado que DockerAgent y PodmanAgent:
 
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Callable
 
@@ -61,7 +62,9 @@ class KubernetesAgent(DomainAgent):
 
         query = f"{ctx.incident_type or ''} {ctx.title} {ctx.logs[:300]}"
         runbooks = self._safe_recall(self.recall_runbooks, query, k=3, label="runbooks")
-        past_incidents = self._safe_recall(self.recall_similar_incidents, query, k=3, label="memoria")
+        past_incidents = self._safe_recall(
+            self.recall_similar_incidents, query, k=3, label="memoria"
+        )
 
         user_msg = _build_user_message(ctx, runbooks, past_incidents)
         analysis, tool_calls = self._react_loop(user_msg)
@@ -92,13 +95,14 @@ class KubernetesAgent(DomainAgent):
         tools = self.tools()
         tool_map = {t.name: t for t in tools}
 
-        llm = ChatOpenAI(
+        llm_base = ChatOpenAI(
             model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             temperature=0,
             api_key=os.getenv("OPENAI_API_KEY"),
             timeout=45,
             max_retries=1,
-        ).bind_tools(tools)
+        )
+        llm = llm_base.bind_tools(tools)
 
         messages = [
             SystemMessage(content=self.system_prompt()),
@@ -106,20 +110,13 @@ class KubernetesAgent(DomainAgent):
         ]
         recorded: list[ToolCall] = []
 
-        for i in range(_MAX_TOOL_ITERATIONS + 1):
+        for _ in range(_MAX_TOOL_ITERATIONS):
             response: AIMessage = llm.invoke(messages)
             messages.append(response)
 
             pending = getattr(response, "tool_calls", None) or []
             if not pending:
                 return (response.content or "").strip(), recorded
-
-            if i == _MAX_TOOL_ITERATIONS:
-                messages.append(HumanMessage(
-                    content="Límite de tool calls alcanzado. Redacta el análisis "
-                            "final ahora con la información que tienes."
-                ))
-                continue
 
             for call in pending:
                 tool_name = call.get("name") if isinstance(call, dict) else call.name
@@ -128,19 +125,32 @@ class KubernetesAgent(DomainAgent):
 
                 tool_fn = tool_map.get(tool_name)
                 try:
-                    result = tool_fn.invoke(tool_args) if tool_fn else f"Tool '{tool_name}' no existe."
+                    result = (
+                        tool_fn.invoke(tool_args) if tool_fn
+                        else f"Tool '{tool_name}' no existe."
+                    )
                 except Exception as e:
                     result = f"Error ejecutando '{tool_name}': {e}"
 
-                recorded.append(ToolCall(name=tool_name, args=tool_args, result_preview=str(result)[:500]))
+                recorded.append(ToolCall(
+                    name=tool_name, args=tool_args, result_preview=str(result)[:500]
+                ))
                 messages.append(ToolMessage(content=str(result), tool_call_id=tool_id))
 
-        final = next((m.content for m in reversed(messages) if isinstance(m, AIMessage) and m.content), "")
-        return (final or "(sin análisis)").strip(), recorded
+        # Límite alcanzado — llamada final sin tools para obtener análisis
+        messages.append(HumanMessage(
+            content="Límite de tool calls alcanzado. Redacta el análisis "
+                    "final ahora con la información que tienes."
+        ))
+        final: AIMessage = llm_base.invoke(messages)
+        return (final.content or "(sin análisis)").strip(), recorded
 
 
 def _build_user_message(ctx: IncidentContext, runbooks: list[str], past: list[dict]) -> str:
-    runbooks_text = "\n\n---\n\n".join(runbooks) if runbooks else "(no hay runbooks indexados para Kubernetes)"
+    runbooks_text = (
+        "\n\n---\n\n".join(runbooks) if runbooks
+        else "(no hay runbooks indexados para Kubernetes)"
+    )
 
     if past:
         past_lines = []
