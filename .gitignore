@@ -60,3 +60,6 @@ CLAUDE.md
 
 # Demo scripts — contienen credenciales hardcodeadas, solo para uso local
 demo_*.sh
+
+# Claude Code local files
+.claude/
