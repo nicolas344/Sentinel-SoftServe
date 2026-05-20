@@ -22,7 +22,7 @@ from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
 from db.supabase_client import supabase
-from services.agents import guardrails
+from services.agents import guardrail_graph, guardrails
 from services.agents.base import IncidentContext, InvestigationResult
 from services.agents.registry import find_agent_for, list_agents
 from services.incident_events import record_event
@@ -240,20 +240,20 @@ def run_triage(ctx: IncidentContext) -> None:
             logger.warning(f"No se pudo crear traza LangFuse: {e}")
 
     try:
-        # ── Guardrail de ENTRADA ──────────────────────────────────────────────
-        input_check = guardrails.check_input(ctx.title, ctx.logs)
-        ctx.logs = input_check.sanitized
-        if not input_check.passed:
+        # ── Guardrail de ENTRADA (grafo LangGraph: reglas → LLM-juez) ─────────
+        input_state = guardrail_graph.run_input_guardrail(ctx.title, ctx.logs)
+        ctx.logs = input_state.get("sanitized", ctx.logs)
+        if input_state.get("violations"):
             logger.warning(
                 f"[Supervisor] Guardrail de entrada activado en {ctx.incident_id[:8]}: "
-                f"{input_check.violations}"
+                f"{input_state['violations']}"
             )
             if trace:
                 try:
                     trace.event(
                         name="guardrail-input-violation",
                         level="WARNING",
-                        metadata={"violations": input_check.violations},
+                        metadata={"violations": input_state["violations"]},
                     )
                 except Exception:
                     pass
@@ -328,12 +328,13 @@ def run_triage(ctx: IncidentContext) -> None:
 
         result = agent.investigate(ctx)
 
-        output_check = guardrails.check_analysis_output(result.analysis)
-        result.analysis = output_check.sanitized
-        if not output_check.passed:
+        # ── Guardrail de SALIDA (grafo LangGraph: reglas → LLM-juez) ──────────
+        output_state = guardrail_graph.run_output_guardrail(result.analysis)
+        result.analysis = output_state.get("sanitized", result.analysis)
+        if output_state.get("violations"):
             logger.warning(
                 f"[Supervisor] Guardrail de salida activado en {ctx.incident_id[:8]}: "
-                f"{output_check.violations}"
+                f"{output_state['violations']}"
             )
 
         if lab2_span:
@@ -345,7 +346,7 @@ def run_triage(ctx: IncidentContext) -> None:
                         "analysis_chars": len(result.analysis),
                     },
                     metadata={
-                        "guardrail_scope_passed": output_check.passed,
+                        "guardrail_scope_passed": not output_state.get("violations"),
                         "tool_calls": [{"name": tc.name, "args": tc.args} for tc in result.tool_calls],
                     },
                 )

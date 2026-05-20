@@ -29,3 +29,4 @@ select = ["E", "F", "I", "N", "W"]
 "tests/test_smoke.py" = ["E402"]
 # test_guardrails.py: sys.path.insert antes del import de services (intencional)
 "tests/test_guardrails.py" = ["E402", "I001"]
+"tests/test_guardrail_graph.py" = ["E402", "I001", "E501"]
