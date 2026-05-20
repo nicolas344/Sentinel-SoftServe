@@ -90,9 +90,11 @@ _INJECTION_PATTERNS = [
 # Señales de que el análisis se salió del dominio DevOps/incidentes. Si el
 # agente empieza a hablar de esto, algo lo desvió.
 _OFF_TOPIC_PATTERNS = [
-    re.compile(r"\b(receta|cocina|chiste|poema|canción|cancion)\b", re.I),
-    re.compile(r"\b(política|politica|religión|religion|deporte)\b", re.I),
-    re.compile(r"\b(bitcoin|criptomoneda|invertir|acciones de bolsa)\b", re.I),
+    re.compile(r"\b(receta\s+de\s+cocina|chiste|poema|canción|cancion)\b", re.I),
+    # "política" se excluye: colisiona con términos técnicos como "política de reinicio",
+    # "política de restart", "política de recursos" — falsos positivos frecuentes en DevOps.
+    re.compile(r"\b(religión|religion|partido\s+político|elecciones presidenciales)\b", re.I),
+    re.compile(r"\b(bitcoin|criptomoneda|invertir en bolsa|acciones de bolsa)\b", re.I),
 ]
 
 # Longitud máxima de logs que se le pasa al LLM. Más allá de esto es ruido y
