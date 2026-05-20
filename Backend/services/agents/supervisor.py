@@ -54,12 +54,12 @@ _INCIDENT_TYPES = [
 
 # ── Nodo 1: Clasificación ─────────────────────────────────────────────────────
 
-def _classify(ctx: IncidentContext) -> tuple[str, str]:
+def _classify(ctx: IncidentContext, parent_span=None) -> tuple[str, str]:
     """
     Clasifica el incidente con el LLM. Retorna (incident_type, reasoning).
-    Este paso sigue siendo compartido por todos los dominios — cada agente
-    puede refinar después si lo necesita.
+    Si se pasa parent_span (LangFuse span), registra la generación LLM.
     """
+    import time
     logs_preview = (ctx.logs or "Sin logs disponibles.")[:800]
     types_list = ", ".join(_INCIDENT_TYPES)
 
@@ -77,18 +77,20 @@ Logs (vista previa):
 Responde ÚNICAMENTE con JSON válido:
 {{"incident_type": "<categoría>", "reasoning": "<máx 2 oraciones en español>"}}"""
 
+    model_name = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     llm = ChatOpenAI(
-        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        model=model_name,
         temperature=0,
         api_key=os.getenv("OPENAI_API_KEY"),
         timeout=45,
         max_retries=1,
         model_kwargs={"response_format": {"type": "json_object"}},
     )
+    t0 = time.monotonic()
     try:
         response = llm.invoke([HumanMessage(content=prompt)])
+        latency_ms = round((time.monotonic() - t0) * 1000)
         raw = (response.content or "").strip()
-        # Tolera respuestas envueltas en ```json ... ``` por si el modelo ignora response_format
         if raw.startswith("```"):
             raw = raw.strip("`").lstrip("json").strip()
         parsed = json.loads(raw)
@@ -96,6 +98,26 @@ Responde ÚNICAMENTE con JSON válido:
         if itype not in _INCIDENT_TYPES:
             itype = "unknown"
         reasoning = parsed.get("reasoning", "Sin razonamiento disponible.")
+
+        # Registrar generación LLM en LangFuse
+        if parent_span:
+            try:
+                usage = (response.response_metadata or {}).get("token_usage", {})
+                parent_span.generation(
+                    name="classify-llm",
+                    model=model_name,
+                    input=prompt,
+                    output=raw,
+                    usage={
+                        "input": usage.get("prompt_tokens", 0),
+                        "output": usage.get("completion_tokens", 0),
+                        "total": usage.get("total_tokens", 0),
+                    },
+                    metadata={"latency_ms": latency_ms, "incident_type_result": itype},
+                )
+            except Exception as lf_e:
+                logger.debug(f"[Supervisor] LangFuse generation log error: {lf_e}")
+
         return itype, reasoning
     except Exception as e:
         logger.error(f"[Supervisor] Error clasificando {ctx.incident_id[:8]}: {e}")
@@ -208,17 +230,17 @@ def run_triage(ctx: IncidentContext) -> None:
     if _langfuse:
         try:
             trace = _langfuse.trace(
-                name=f"incident-{ctx.incident_id[:8]}",
+                name=f"[{ctx.severity}] {ctx.title[:60]}",
+                session_id=ctx.incident_id,
                 input={"title": ctx.title, "severity": ctx.severity, "target": ctx.target},
                 tags=["sentinel", ctx.severity, "multiagent"],
+                metadata={"incident_id": ctx.incident_id},
             )
         except Exception as e:
             logger.warning(f"No se pudo crear traza LangFuse: {e}")
 
     try:
         # ── Guardrail de ENTRADA ──────────────────────────────────────────────
-        # Recorta logs y neutraliza intentos de prompt injection ANTES de que
-        # el LLM vea el incidente.
         input_check = guardrails.check_input(ctx.title, ctx.logs)
         ctx.logs = input_check.sanitized
         if not input_check.passed:
@@ -226,16 +248,41 @@ def run_triage(ctx: IncidentContext) -> None:
                 f"[Supervisor] Guardrail de entrada activado en {ctx.incident_id[:8]}: "
                 f"{input_check.violations}"
             )
+            if trace:
+                try:
+                    trace.event(
+                        name="guardrail-input-violation",
+                        level="WARNING",
+                        metadata={"violations": input_check.violations},
+                    )
+                except Exception:
+                    pass
 
-        # 1. Clasificación (Lab 1 — Alert Intake)
-        incident_type, class_reason = _classify(ctx)
+        # ── Lab 1: Alert Intake ───────────────────────────────────────────────
+        lab1_span = None
+        if trace:
+            try:
+                lab1_span = trace.span(
+                    name="Lab 1 — Alert Intake",
+                    input={"title": ctx.title, "severity": ctx.severity, "logs_chars": len(ctx.logs or "")},
+                )
+            except Exception:
+                pass
 
-        # ── Guardrail de CLASIFICACIÓN ────────────────────────────────────────
-        # El tipo de incidente debe pertenecer al catálogo cerrado; si el LLM
-        # inventó una categoría, se fuerza a 'unknown'.
+        incident_type, class_reason = _classify(ctx, parent_span=lab1_span)
+
         type_check = guardrails.check_incident_type(incident_type)
         incident_type = type_check.sanitized
         ctx.incident_type = incident_type
+
+        if lab1_span:
+            try:
+                lab1_span.end(
+                    output={"incident_type": incident_type, "reasoning_preview": class_reason[:120]},
+                    metadata={"guardrail_passed": type_check.passed},
+                )
+            except Exception:
+                pass
 
         _update_incident(ctx.incident_id, {
             "status": "investigating",
@@ -247,7 +294,7 @@ def run_triage(ctx: IncidentContext) -> None:
         })
         record_event(ctx.incident_id, "investigating")
 
-        # 2. Routing
+        # ── Routing ───────────────────────────────────────────────────────────
         agent = find_agent_for(ctx)
         if agent is None:
             registered = [a.name for a in list_agents()]
@@ -268,12 +315,19 @@ def run_triage(ctx: IncidentContext) -> None:
 
         logger.info(f"[Supervisor] Enrutando {ctx.incident_id[:8]} → '{agent.name}'")
 
-        # 3. Investigación (Lab 2 — Investigation)
+        # ── Lab 2: Investigation ──────────────────────────────────────────────
+        lab2_span = None
+        if trace:
+            try:
+                lab2_span = trace.span(
+                    name=f"Lab 2 — Investigation ({agent.name})",
+                    input={"agent": agent.name, "incident_type": incident_type, "target": ctx.target},
+                )
+            except Exception:
+                pass
+
         result = agent.investigate(ctx)
 
-        # ── Guardrail de SALIDA / SCOPE ───────────────────────────────────────
-        # Verifica que el análisis del agente no se haya desviado del dominio
-        # DevOps. Si se desvió, antepone una advertencia visible al ingeniero.
         output_check = guardrails.check_analysis_output(result.analysis)
         result.analysis = output_check.sanitized
         if not output_check.passed:
@@ -282,14 +336,36 @@ def run_triage(ctx: IncidentContext) -> None:
                 f"{output_check.violations}"
             )
 
-        # 4. Persistencia final
+        if lab2_span:
+            try:
+                lab2_span.end(
+                    output={
+                        "tools_used": [tc.name for tc in result.tool_calls],
+                        "similar_incidents_found": len(result.similar_past_incidents),
+                        "analysis_chars": len(result.analysis),
+                    },
+                    metadata={
+                        "guardrail_scope_passed": output_check.passed,
+                        "tool_calls": [{"name": tc.name, "args": tc.args} for tc in result.tool_calls],
+                    },
+                )
+            except Exception:
+                pass
+
+        # ── Lab 3: Decision & Planning ────────────────────────────────────────
+        lab3_span = None
+        if trace:
+            try:
+                lab3_span = trace.span(
+                    name="Lab 3 — Decision & Planning",
+                    input={"incident_type": incident_type, "agent": agent.name},
+                )
+            except Exception:
+                pass
+
         full_reasoning = _render_final_reasoning(class_reason, incident_type, agent.name, result)
         proposed_action = _build_proposed_action(ctx, incident_type)
 
-        # ── Guardrail de ACCIÓN ───────────────────────────────────────────────
-        # Re-valida de forma independiente que la acción propuesta esté en la
-        # lista blanca de comandos seguros. Si no lo está, NO se propone nada:
-        # el incidente queda en 'analyzed' para revisión manual del ingeniero.
         action_check = guardrails.check_proposed_action(proposed_action)
         if not action_check.passed:
             logger.error(
@@ -300,13 +376,21 @@ def run_triage(ctx: IncidentContext) -> None:
         else:
             proposed_action = action_check.sanitized or None
 
+        if lab3_span:
+            try:
+                lab3_span.end(
+                    output={"proposed_action": proposed_action, "action_blocked": not action_check.passed},
+                    metadata={"guardrail_action_passed": action_check.passed},
+                )
+            except Exception:
+                pass
+
         _update_incident(ctx.incident_id, {
             "status": "analyzed",
             "agent_reasoning": full_reasoning,
         })
         record_event(ctx.incident_id, "analyzed")
 
-        # Pasa a gate de aprobacion cuando hay accion segura propuesta.
         if proposed_action:
             _update_incident(ctx.incident_id, {
                 "status": "awaiting_approval",
@@ -314,7 +398,7 @@ def run_triage(ctx: IncidentContext) -> None:
             })
             record_event(ctx.incident_id, "awaiting_approval")
 
-        # 5. Memoria episódica (best-effort, no bloqueante)
+        # ── Memoria episódica (best-effort) ───────────────────────────────────
         pool = ThreadPoolExecutor(max_workers=1)
         try:
             future = pool.submit(agent.remember_incident, ctx, result)
@@ -328,13 +412,20 @@ def run_triage(ctx: IncidentContext) -> None:
             logger.warning(f"[Supervisor] Error guardando memoria para {ctx.incident_id[:8]}: {e}")
 
         if trace:
-            trace.update(output={
-                "status": "awaiting_approval" if proposed_action else "analyzed",
-                "agent": agent.name,
-                "tools_used": [tc.name for tc in result.tool_calls],
-                "similar_incidents": len(result.similar_past_incidents),
-                "proposed_action": proposed_action,
-            })
+            try:
+                trace.update(
+                    output={
+                        "status": "awaiting_approval" if proposed_action else "analyzed",
+                        "agent": agent.name,
+                        "incident_type": incident_type,
+                        "tools_used": [tc.name for tc in result.tool_calls],
+                        "similar_incidents": len(result.similar_past_incidents),
+                        "proposed_action": proposed_action,
+                    },
+                    tags=["sentinel", ctx.severity, "multiagent", agent.name, incident_type],
+                )
+            except Exception:
+                pass
 
         logger.info(f"[Supervisor] Triage completado {ctx.incident_id[:8]} por '{agent.name}'")
 
