@@ -282,6 +282,103 @@ groups:
             El contenedor Podman {{ $labels.name }} lleva más de 3 minutos en estado
             stopped. Puede indicar un problema de health o fallo al reiniciar.
 
+# ── Kubernetes Alerts (kube-state-metrics) ───────────────────────────────────
+# Requiere kube-state-metrics desplegado en el clúster y configurado en
+# prometheus.yml como target de scrape.
+# Todas las alertas incluyen container_runtime: kubernetes para que
+# alert_processor enrute los incidentes al KubernetesAgent.
+  - name: kubernetes_alerts
+    interval: 15s
+    rules:
+
+      # CrashLoopBackOff — contenedor reiniciándose en bucle
+      - alert: KubePodCrashLoopBackOff
+        expr: >
+          kube_pod_container_status_waiting_reason{reason="CrashLoopBackOff"} == 1
+        for: 0m
+        labels:
+          severity: critical
+          container_runtime: kubernetes
+        annotations:
+          summary: >-
+            CrashLoopBackOff: {{ $labels.pod }} ({{ $labels.namespace }})
+          description: >-
+            El contenedor {{ $labels.container }} del pod {{ $labels.pod }}
+            en el namespace {{ $labels.namespace }} está en CrashLoopBackOff.
+            El proceso muere continuamente — requiere diagnóstico inmediato.
+
+      # OOMKilled — pod terminado por el OOM Killer del kernel
+      - alert: KubePodOOMKilled
+        expr: >
+          kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+        for: 0m
+        labels:
+          severity: critical
+          container_runtime: kubernetes
+        annotations:
+          summary: >-
+            OOM Kill en pod: {{ $labels.pod }} ({{ $labels.namespace }})
+          description: >-
+            El contenedor {{ $labels.container }} del pod {{ $labels.pod }}
+            en {{ $labels.namespace }} fue terminado por el OOM Killer.
+            El memory limit es insuficiente o hay un memory leak.
+
+      # Pod NotReady — pod corriendo pero sin pasar readiness probe
+      - alert: KubePodNotReady
+        expr: >
+          min by (namespace, pod) (
+            kube_pod_status_ready{condition="true"}
+          ) == 0
+          unless on(namespace, pod)
+            kube_pod_status_phase{phase=~"Succeeded|Failed"} == 1
+        for: 5m
+        labels:
+          severity: high
+          container_runtime: kubernetes
+        annotations:
+          summary: >-
+            Pod no listo: {{ $labels.pod }} ({{ $labels.namespace }})
+          description: >-
+            El pod {{ $labels.pod }} en {{ $labels.namespace }} lleva más de
+            5 minutos sin pasar su readiness probe. No recibe tráfico del Service.
+
+      # Deployment replica mismatch — réplicas disponibles < deseadas
+      - alert: KubeDeploymentReplicasMismatch
+        expr: >
+          (
+            kube_deployment_spec_replicas
+            >
+            kube_deployment_status_replicas_available
+          ) and (
+            changes(kube_deployment_status_replicas_updated[10m]) == 0
+          )
+        for: 5m
+        labels:
+          severity: high
+          container_runtime: kubernetes
+        annotations:
+          summary: >-
+            Réplicas insuficientes: {{ $labels.deployment }} ({{ $labels.namespace }})
+          description: >-
+            El deployment {{ $labels.deployment }} en {{ $labels.namespace }}
+            lleva 5 minutos con réplicas disponibles ({{ $value }}) menores que
+            las deseadas. Posibles pods en CrashLoop o nodos sin capacidad.
+
+      # Node NotReady — nodo del clúster no disponible
+      - alert: KubeNodeNotReady
+        expr: >
+          kube_node_status_condition{condition="Ready",status="true"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          container_runtime: kubernetes
+        annotations:
+          summary: >-
+            Nodo no disponible: {{ $labels.node }}
+          description: >-
+            El nodo {{ $labels.node }} lleva más de 2 minutos en estado NotReady.
+            Los pods del nodo pueden estar siendo eviccionados hacia otros nodos.
+
 # ── PostgreSQL Alerts (postgres-exporter) ────────────────────────────────────
 # Requiere postgres-exporter corriendo y configurado en prometheus.yml.
 # Todas las alertas incluyen source_type: database para que alert_processor

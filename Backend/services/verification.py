@@ -55,6 +55,8 @@ def verify_resolution(
         if runtime == "postgres" or target.startswith("postgres/"):
             datname = target.replace("postgres/", "").strip() if "/" in target else target
             check = _inspect_postgres(datname)
+        elif runtime == "kubernetes":
+            check = _inspect_kubernetes(target)
         else:
             check = _inspect_container(target, runtime)
 
@@ -224,9 +226,88 @@ def _inspect_postgres(datname: str) -> dict:
 
 # ── Renderizado del resultado ─────────────────────────────────────────────────
 
+def _inspect_kubernetes(target: str) -> dict:
+    """
+    Verifica el estado de un pod o deployment Kubernetes tras ejecutar una acción.
+
+    Formato de target:
+      - "pod/<name>"                       → inspecciona el pod directamente
+      - "pod/<name>/<namespace>"           → pod en namespace específico
+      - "deployment/<name>"               → busca pods del deployment
+      - "<name>" (sin prefijo)            → intenta como pod en default namespace
+    """
+    # Parsear target
+    namespace = "default"
+    resource_type = "pod"
+    resource_name = target
+
+    parts = target.split("/")
+    if len(parts) == 2 and parts[0] in ("pod", "deployment"):
+        resource_type, resource_name = parts
+    elif len(parts) == 3 and parts[0] in ("pod", "deployment"):
+        resource_type, resource_name, namespace = parts
+
+    try:
+        import kubernetes  # type: ignore
+
+        try:
+            kubernetes.config.load_incluster_config()
+        except kubernetes.config.config_exception.ConfigException:
+            kubernetes.config.load_kube_config()
+
+        v1 = kubernetes.client.CoreV1Api()
+
+        if resource_type == "deployment":
+            apps_v1 = kubernetes.client.AppsV1Api()
+            dep = apps_v1.read_namespaced_deployment(name=resource_name, namespace=namespace)
+            desired = dep.spec.replicas or 0
+            available = dep.status.available_replicas or 0
+            # desired==0 es scale-to-zero intencional → estado válido
+            healthy = desired == 0 or available >= desired
+            return {
+                "healthy": healthy,
+                "status": "available" if healthy else "degraded",
+                "details": (
+                    f"Deployment '{resource_name}': {available}/{desired} réplicas disponibles"
+                ),
+            }
+
+        # Inspección de pod
+        pod = v1.read_namespaced_pod(name=resource_name, namespace=namespace)
+        phase = pod.status.phase or "Unknown"
+        containers_ready = all(
+            cs.ready for cs in (pod.status.container_statuses or [])
+        )
+        healthy = phase == "Running" and containers_ready
+
+        waiting_reasons = [
+            cs.state.waiting.reason
+            for cs in (pod.status.container_statuses or [])
+            if cs.state and cs.state.waiting and cs.state.waiting.reason
+        ]
+        details = f"Pod '{resource_name}': phase={phase}"
+        if waiting_reasons:
+            details += f", waiting={','.join(waiting_reasons)}"
+
+        return {
+            "healthy": healthy,
+            "status": phase.lower(),
+            "details": details,
+        }
+
+    except Exception as e:
+        return {
+            "healthy": False,
+            "status": "error",
+            "details": f"No se pudo verificar el estado de '{target}': {e}",
+        }
+
+
 def _render_section(r: dict, runtime: str = "docker") -> str:
     if runtime == "postgres":
         return _render_postgres_section(r)
+    if runtime == "kubernetes":
+        return _render_kubernetes_section(r)
     return _render_container_section(r)
 
 
@@ -249,6 +330,32 @@ def _render_container_section(r: dict) -> str:
     ]
     if r.get("error"):
         rows.append(f"| Error | `{r['error'][:120]}` |")
+
+    return "\n".join([
+        f"## {heading}",
+        "",
+        summary,
+        "",
+        "| Campo | Valor |",
+        "|-------|-------|",
+        *rows,
+    ])
+
+
+def _render_kubernetes_section(r: dict) -> str:
+    if r["healthy"]:
+        heading = "Verificación de resolución — Workload Kubernetes recuperado"
+        summary = f"El recurso volvió a estado operativo. {r.get('details', '')}"
+    else:
+        heading = "Verificación de resolución — Workload Kubernetes no recuperado"
+        summary = (
+            f"{r.get('details', 'El recurso no está en buen estado.')} Requiere atención manual."
+        )
+
+    rows = [
+        f"| Estado | `{r['status']}` |",
+        f"| Detalles | {r.get('details', '—')[:150]} |",
+    ]
 
     return "\n".join([
         f"## {heading}",

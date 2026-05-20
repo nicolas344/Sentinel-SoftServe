@@ -31,12 +31,12 @@ SEVERITY_MAP = {
     "PodmanContainerCPUThrottling":    "medium",
     "PodmanContainerRestartLoop":      "high",
     "PodmanContainerUnhealthy":        "high",
-    # Kubernetes (kube-state-metrics) — agente pendiente de implementar
-    # "KubePodCrashLooping":        "critical",
-    # "KubePodOOMKilled":           "critical",
-    # "KubePodNotReady":            "high",
-    # "KubeDeploymentUnavailable":  "high",
-    # "KubeNodeNotReady":           "critical",
+    # Kubernetes (kube-state-metrics)
+    "KubePodCrashLoopBackOff":        "critical",
+    "KubePodOOMKilled":               "critical",
+    "KubePodNotReady":                "high",
+    "KubeDeploymentReplicasMismatch": "high",
+    "KubeNodeNotReady":               "critical",
     # PostgreSQL (postgres-exporter)
     "PostgresConnectionsExhausted":   "critical",
     "PostgresLongRunningTransaction":  "high",
@@ -68,6 +68,12 @@ ALERT_TITLE_LABEL = {
     "PodmanContainerCPUThrottling": "CPU elevada",
     "PodmanContainerRestartLoop":  "Restart loop detectado",
     "PodmanContainerUnhealthy":    "Contenedor detenido",
+    # Kubernetes
+    "KubePodCrashLoopBackOff":        "CrashLoopBackOff detectado",
+    "KubePodOOMKilled":               "OOM Kill en pod",
+    "KubePodNotReady":                "Pod no listo",
+    "KubeDeploymentReplicasMismatch": "Réplicas insuficientes",
+    "KubeNodeNotReady":               "Nodo no disponible",
     # PostgreSQL
     "PostgresConnectionsExhausted":    "Conexiones agotadas",
     "PostgresLongRunningTransaction":   "Transacción larga detectada",
@@ -92,13 +98,15 @@ def _build_title(alert_name: str, target: str, source_type: str) -> str:
     return f"{target}: {human}"
 
 
-def _has_active_incident(target: str) -> bool:
+def _has_active_incident(target: str, container_runtime: str | None = None) -> bool:
     """
-    Verifica si ya existe un incidente activo para este target.
+    Verifica si ya existe un incidente activo para este target y runtime.
     Evita crear duplicados cuando varias alertas se disparan en cascada.
+    Filtra por container_runtime para que un incidente Docker de un pod K8s
+    no bloquee la creación de un incidente Kubernetes para el mismo target.
     """
     try:
-        response = (
+        query = (
             supabase.table("incidents")
             .select("id")
             .eq("target", target)
@@ -109,8 +117,10 @@ def _has_active_incident(target: str) -> bool:
                 "awaiting_approval",
                 "executing_solution",
             ])
-            .execute()
         )
+        if container_runtime:
+            query = query.eq("container_runtime", container_runtime)
+        response = query.execute()
         return len(response.data) > 0
     except Exception as e:
         logger.error(f"Error verificando incidente activo para '{target}': {e}")
@@ -202,6 +212,8 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
     _runtime_hint = labels.get("container_runtime", "")
     if source_type != "container":
         container_runtime = None
+    elif _runtime_hint in {"kubernetes", "k8s", "containerd"}:
+        container_runtime = "kubernetes"
     elif _runtime_hint in {"podman"}:
         container_runtime = "podman"
     else:
@@ -210,12 +222,26 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
     # Extraer identificador del target
     raw_id         = labels.get("id", "")
     container_id   = _extract_container_id(raw_id, container_runtime or "docker")
-    target         = labels.get("name") or (container_id[:12] if container_id else "unknown")
 
     # Para incidentes de base de datos el target es "postgres/<datname>"
     if source_type == "database":
         datname = labels.get("datname", "unknown")
         target  = f"postgres/{datname}"
+    elif container_runtime == "kubernetes":
+        # kube-state-metrics envía pod/deployment/node en lugar de name/id
+        pod        = labels.get("pod")
+        deployment = labels.get("deployment")
+        node       = labels.get("node")
+        if pod:
+            target = f"pod/{pod}"
+        elif deployment:
+            target = f"deployment/{deployment}"
+        elif node:
+            target = f"node/{node}"
+        else:
+            target = labels.get("name") or "unknown"
+    else:
+        target = labels.get("name") or (container_id[:12] if container_id else "unknown")
 
     raw_instance = labels.get("instance", "")
     if not raw_instance or raw_instance.startswith("cadvisor"):
@@ -236,13 +262,13 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
 
     # Logs desde Loki (solo para contenedores — Postgres no tiene logs en Loki por ahora)
     logs = ""
-    if source_type == "container" and container_id:
+    if source_type == "container" and container_id and container_runtime != "kubernetes":
         logs = query_loki_logs(container_id, alert_time)
 
     if not logs:
         logs = annotations.get("description") or ""
 
-    if target != "unknown" and _has_active_incident(target):
+    if target != "unknown" and _has_active_incident(target, container_runtime):
         logger.info(f"Incidente activo ya existe para '{target}' ({alert_name}) — omitiendo duplicado")
         return None
 
@@ -277,10 +303,18 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
     # Guardar snapshot de métricas al momento de detección (best-effort).
     # Permite mostrar datos en MetricsPanel aunque el contenedor ya no exista.
     try:
-        from services.prometheus import get_container_metrics, get_postgres_metrics
+        from services.prometheus import (
+            get_container_metrics,
+            get_kubernetes_metrics,
+            get_postgres_metrics,
+        )
         if source_type == "database":
             datname = target.replace("postgres/", "").strip()
             snapshot = get_postgres_metrics(datname)
+        elif container_runtime == "kubernetes":
+            namespace = labels.get("namespace", "default")
+            pod_name = labels.get("pod") or labels.get("name") or target
+            snapshot = get_kubernetes_metrics(pod_name, namespace)
         else:
             snapshot = get_container_metrics(target)
 

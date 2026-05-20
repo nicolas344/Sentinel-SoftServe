@@ -166,6 +166,23 @@ def _build_proposed_action(ctx: IncidentContext, incident_type: str) -> str | No
             return f"podman restart {target}"
         return f"podman logs {target}"
 
+    # ── Incidentes de workload Kubernetes ────────────────────────────────────
+    if runtime == "kubernetes":
+        namespace = (ctx.labels.get("namespace") or "default").strip()
+        parts = target.split("/")
+        if len(parts) < 2 or parts[0] not in ("pod", "deployment"):
+            return None
+        resource_type, resource_name = parts[0], parts[1]
+        if not resource_name or " " in resource_name:
+            return None
+        if resource_type == "pod" and incident_type in {
+            "app_crash", "oom", "restart_loop", "dependency_failure", "config_error"
+        }:
+            return f"kubectl delete pod {resource_name} -n {namespace}"
+        if resource_type == "deployment":
+            return f"kubectl rollout restart deployment/{resource_name} -n {namespace}"
+        return None
+
     # ── Incidentes de contenedor Docker ──────────────────────────────────────
     if runtime and runtime != "docker":
         return None

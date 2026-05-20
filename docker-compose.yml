@@ -20,6 +20,19 @@ services:
       # Si el host usa un UID diferente, ajustar la ruta del volumen y esta variable.
       # En macOS (Docker Desktop) este socket no existe y la variable queda sin efecto.
       PODMAN_HOST: "unix:///run/podman/podman.sock"
+      # Kubernetes: el SDK busca /root/.kube/config cuando corre fuera del clúster.
+      # Si el kubeconfig no está en la ruta estándar, sobreescribir con KUBECONFIG.
+      KUBECONFIG: "/root/.kube/config"
+      # K8S_PROXY_URL: URL del kubectl proxy para entornos Docker Desktop (macOS/Windows).
+      # En Docker Desktop el API server (127.0.0.1:6443) no es alcanzable desde contenedores.
+      # Solución: antes del demo ejecutar en el host:
+      #   kubectl proxy --port=8555 --address=<LAN_IP> --accept-hosts='.*' &
+      # Y ajustar esta variable con la IP LAN del host (ver: ifconfig | grep "inet 192")
+      # K8S_PROXY_URL: dejar vacío por defecto. Solo necesario en Docker Desktop
+      # donde 127.0.0.1:6443 no es alcanzable desde contenedores.
+      # Configurar con la IP LAN del host antes del demo:
+      #   kubectl proxy --port=8555 --address=<LAN_IP> --accept-hosts='.*' &
+      K8S_PROXY_URL: ""
     ports:
       - "8000:8000"
     volumes:
@@ -28,6 +41,10 @@ services:
       # Socket de Podman (solo disponible en Linux con Podman instalado).
       # En macOS Docker Desktop este path no existe; Docker Compose lo ignora silenciosamente.
       - /run/user/1000/podman/podman.sock:/run/podman/podman.sock:rw
+      # Kubeconfig de Kubernetes (para desarrollo local y acceso desde el backend).
+      # En producción se usa in-cluster config (ServiceAccount automático de K8s).
+      # En macOS/Linux: ~/.kube/config montado como read-only.
+      - ${HOME}/.kube:/root/.kube:ro
       - backend_env:/app/env        # aísla virtualenv del host → evita WatchFiles storms
       - chroma_cache:/root/.cache/chroma  # persiste modelo ONNX (~79MB) entre reinicios
     extra_hosts:

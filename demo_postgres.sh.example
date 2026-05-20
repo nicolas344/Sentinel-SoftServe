@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# ── Demo Sentinel: Incidente Podman ──────────────────────────────────────────
-# Ejecutar desde el servidor Linux: bash demo_podman.sh
+# ── Demo Sentinel: Incidente PostgreSQL ──────────────────────────────────────
+# Ejecutar desde el Mac: bash demo_postgres.sh
 set -euo pipefail
 
-BACKEND="http://localhost:8000"
-ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1c3p1cGRlY2l0cXpqdXp0cWVvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NDM3OTcsImV4cCI6MjA4NzAxOTc5N30.mgpAaQviU-dMWohAPwggO3mOJrcWrUR7WlbwQAcLmIk"
-SERVICE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV1c3p1cGRlY2l0cXpqdXp0cWVvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTQ0Mzc5NywiZXhwIjoyMDg3MDE5Nzk3fQ.6cPnJBvaEctDVJ1NhUahfbf7xWYK69NlyoT43HkR3MI"
-SUPABASE_URL="https://euszupdecitqzjuztqeo.supabase.co"
-CONTAINER="test-app"
+BACKEND="http://100.118.123.112:8000"
+ANON_KEY="<tu-supabase-anon-key>"
+SERVICE_KEY="<tu-supabase-service-key>"
+SUPABASE_URL="<tu-supabase-url>"
+TARGET="postgres/sentinel_demo"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  SENTINEL — Demo Podman"
+echo "  SENTINEL — Demo PostgreSQL"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # 0. Limpiar incidentes activos del target (permite repetir la demo)
 echo ""
-echo "[0/5] Limpiando incidentes previos del target..."
+echo "[0/4] Limpiando incidentes previos del target..."
 CLOSED=$(curl -s -X PATCH \
-  "$SUPABASE_URL/rest/v1/incidents?target=eq.$CONTAINER&container_runtime=eq.podman&status=in.(detected,investigating,analyzed,awaiting_approval,executing_solution,verifying)" \
+  "$SUPABASE_URL/rest/v1/incidents?target=eq.$TARGET&status=in.(detected,investigating,analyzed,awaiting_approval,executing_solution,verifying)" \
   -H "apikey: $SERVICE_KEY" \
   -H "Authorization: Bearer $SERVICE_KEY" \
   -H "Content-Type: application/json" \
@@ -30,35 +30,19 @@ else
   echo "    ✓ Sin incidentes previos"
 fi
 
-# 1. Asegurar que el contenedor existe y está corriendo
+# 1. Token
 echo ""
-echo "[1/5] Preparando contenedor '$CONTAINER'..."
-if ! podman ps -a --format '{{.Names}}' | grep -q "^${CONTAINER}$"; then
-  echo "    Creando contenedor de demo..."
-  podman run -d --name "$CONTAINER" docker.io/library/nginx:alpine > /dev/null
-fi
-podman start "$CONTAINER" > /dev/null 2>&1 || true
-echo "    ✓ Contenedor corriendo"
-
-# 2. Token
-echo ""
-echo "[2/5] Obteniendo token de autenticación..."
+echo "[1/4] Obteniendo token de autenticación..."
 TOKEN=$(curl -s -X POST "$SUPABASE_URL/auth/v1/token?grant_type=password" \
   -H "apikey: $ANON_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"email":"ricomontesinonicolas@gmail.com","password":"Motoraton_147"}' \
+  -d '{"email":"<tu-email>","password":"<tu-password>"}}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 echo "    ✓ Autenticado"
 
-# 3. Detener el contenedor (crash real)
+# 2. Alerta
 echo ""
-echo "[3/5] Simulando crash — deteniendo '$CONTAINER'..."
-podman stop "$CONTAINER" > /dev/null
-echo "    ✓ Contenedor detenido ($(podman ps -a --filter "name=^${CONTAINER}$" --format '{{.Status}}'))"
-
-# 4. Alerta
-echo ""
-echo "[4/5] Disparando alerta: PodmanContainerCrashed..."
+echo "[2/4] Disparando alerta: PostgresConnectionsExhausted..."
 curl -s -X POST "$BACKEND/api/alerts" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
@@ -67,24 +51,23 @@ curl -s -X POST "$BACKEND/api/alerts" \
     "alerts": [{
       "status": "firing",
       "labels": {
-        "alertname": "PodmanContainerCrashed",
-        "severity": "high",
-        "name": "'"$CONTAINER"'",
-        "container_runtime": "podman",
-        "source_type": "container"
+        "alertname": "PostgresConnectionsExhausted",
+        "severity": "critical",
+        "datname": "sentinel_demo",
+        "source_type": "database"
       },
       "annotations": {
-        "summary": "Contenedor Podman '"$CONTAINER"' caído",
-        "description": "El contenedor '"$CONTAINER"' terminó de forma inesperada."
+        "summary": "BD sentinel_demo sin conexiones disponibles",
+        "description": "El pool de conexiones de sentinel_demo está al 100%. Queries nuevas bloqueadas."
       },
       "startsAt": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"
     }]
   }' > /dev/null
 echo "    ✓ Alerta enviada — el agente está investigando..."
 
-# 5. Esperar awaiting_approval (máx 90s)
+# 3. Esperar awaiting_approval (máx 90s)
 echo ""
-echo "[5/5] Esperando análisis del agente..."
+echo "[3/4] Esperando análisis del agente..."
 INCIDENT_ID=""
 for i in $(seq 1 18); do
   sleep 5
@@ -92,10 +75,8 @@ for i in $(seq 1 18); do
     | python3 -c "
 import sys,json
 data = json.load(sys.stdin)
-pm = [i for i in data if (i.get('container_runtime') or '') == 'podman'
-      and (i.get('target') or '') == 'test-app'
-      and i.get('status') in ('awaiting_approval','resolved','failed','executing_solution','verifying')]
-print(pm[0]['id'] + '|' + pm[0]['status'] + '|' + (pm[0].get('proposed_action') or '') if pm else '')
+pg = [i for i in data if 'postgres/sentinel_demo' == (i.get('target') or '') and i.get('status') in ('awaiting_approval','resolved','failed','executing_solution','verifying')]
+print(pg[0]['id'] + '|' + pg[0]['status'] + '|' + (pg[0].get('proposed_action') or '') if pg else '')
 " 2>/dev/null)
   if [ -n "$RESULT" ]; then
     INCIDENT_ID=$(echo "$RESULT" | cut -d'|' -f1)
@@ -119,13 +100,13 @@ echo "  Acción:     $ACTION"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "  >>> APRUEBA LA ACCIÓN EN EL DASHBOARD <<<"
-echo "      http://localhost:5173"
+echo "      http://100.118.123.112:5173"
 echo ""
 read -r -p "  Presiona ENTER cuando hayas aprobado en el dashboard..."
 
-# 6. Confirmar resolución
+# 4. Ejecutar (por si se aprueba via curl en lugar del UI)
 echo ""
-echo "Verificando resolución..."
+echo "[4/4] Verificando resolución..."
 for i in $(seq 1 12); do
   sleep 5
   FINAL=$(curl -s "$BACKEND/api/incidents/$INCIDENT_ID" -H "Authorization: Bearer $TOKEN" \
@@ -138,10 +119,6 @@ for i in $(seq 1 12); do
 done
 
 echo ""
-echo "  Estado contenedor en Podman:"
-podman ps --filter "name=^${CONTAINER}$" --format "    {{.Names}}  {{.Status}}"
-
-echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  Demo Podman completado"
+echo "  Demo PostgreSQL completado"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

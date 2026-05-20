@@ -56,6 +56,22 @@ _ALLOWED_ACTION_PATTERNS = [
     re.compile(r"^podman (restart|logs) [a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$"),
     re.compile(r"^pg_(stat_activity|cancel_backend|terminate_backend) "
                r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$"),
+    # Kubernetes — kubectl rollout restart deployment/<name> [-n <namespace>]
+    re.compile(
+        r"^kubectl rollout restart deployment/[a-zA-Z0-9][a-zA-Z0-9-]{0,62}"
+        r"( -n [a-zA-Z0-9][a-zA-Z0-9-]{0,62})?$"
+    ),
+    # Kubernetes — kubectl delete pod <pod-name> [-n <namespace>]
+    re.compile(
+        r"^kubectl delete pod [a-zA-Z0-9][a-zA-Z0-9-]{0,62}"
+        r"( -n [a-zA-Z0-9][a-zA-Z0-9-]{0,62})?$"
+    ),
+    # Kubernetes — kubectl scale deployment/<name> --replicas=<0-10> [-n <namespace>]
+    re.compile(
+        r"^kubectl scale deployment/[a-zA-Z0-9][a-zA-Z0-9-]{0,62}"
+        r" --replicas=(10|[0-9])"
+        r"( -n [a-zA-Z0-9][a-zA-Z0-9-]{0,62})?$"
+    ),
 ]
 
 # Frases típicas de prompt injection — alguien que mete instrucciones en los

@@ -116,8 +116,8 @@ def test_action_guardrail_blocks_command_substitution():
 
 
 def test_action_guardrail_blocks_unknown_binary():
-    """Flujo alterno: un binario fuera de docker/podman/pg_* se bloquea."""
-    result = guardrails.check_proposed_action("kubectl delete pod app-demo")
+    """Flujo alterno: un binario fuera de la whitelist se bloquea."""
+    result = guardrails.check_proposed_action("curl http://malicious.example.com")
     assert result.passed is False
 
 

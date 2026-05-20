@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 _CONTAINER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 _PG_DATNAME_RE     = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$")
+_K8S_NAME_RE       = re.compile(r"^[a-z0-9][a-z0-9\-.]{0,251}[a-z0-9]$|^[a-z0-9]$")
 
 _PG_ALLOWED_FUNCS    = {"pg_stat_activity", "pg_cancel_backend", "pg_terminate_backend"}
 _PODMAN_ALLOWED_CMDS = {"restart", "logs"}
@@ -95,6 +96,106 @@ def _validate_pg_command(command: str) -> tuple[str, str]:
 
 
 # ── Ejecutores ────────────────────────────────────────────────────────────────
+
+def _validate_kubernetes_command(command: str) -> list[str]:
+    """
+    Acepta únicamente:
+      - kubectl rollout restart deployment/<name> [-n <namespace>]
+      - kubectl delete pod <pod-name> [-n <namespace>]
+      - kubectl scale deployment/<name> --replicas=<0-10> [-n <namespace>]
+    Retorna los tokens validados listos para subprocess.
+    """
+    try:
+        tokens = shlex.split(command.strip())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Comando inválido: {exc}")
+
+    if not tokens or tokens[0] != "kubectl":
+        raise HTTPException(status_code=400, detail="Solo se permiten comandos kubectl")
+
+    if any(ch in command for ch in (";", "&&", "||", "|", "`", "$(", ">", "<", "\n")):
+        raise HTTPException(status_code=400, detail="Comando contiene metacaracteres no permitidos")
+
+    # kubectl rollout restart deployment/<name> [-n <ns>]
+    if len(tokens) >= 4 and tokens[1] == "rollout" and tokens[2] == "restart":
+        resource = tokens[3]
+        if not resource.startswith("deployment/"):
+            raise HTTPException(status_code=400, detail="Solo se permite 'deployment/<name>' en rollout restart")
+        name = resource[len("deployment/"):]
+        if not _K8S_NAME_RE.match(name):
+            raise HTTPException(status_code=400, detail="Nombre de deployment inválido")
+        if len(tokens) == 6 and tokens[4] == "-n":
+            if not _K8S_NAME_RE.match(tokens[5]):
+                raise HTTPException(status_code=400, detail="Nombre de namespace inválido")
+        elif len(tokens) != 4:
+            raise HTTPException(status_code=400, detail="Formato de comando rollout restart no permitido")
+        return tokens
+
+    # kubectl delete pod <pod-name> [-n <ns>]
+    if len(tokens) >= 4 and tokens[1] == "delete" and tokens[2] == "pod":
+        pod_name = tokens[3]
+        if not _K8S_NAME_RE.match(pod_name):
+            raise HTTPException(status_code=400, detail="Nombre de pod inválido")
+        if len(tokens) == 6 and tokens[4] == "-n":
+            if not _K8S_NAME_RE.match(tokens[5]):
+                raise HTTPException(status_code=400, detail="Nombre de namespace inválido")
+        elif len(tokens) != 4:
+            raise HTTPException(status_code=400, detail="Formato de comando delete pod no permitido")
+        return tokens
+
+    # kubectl scale deployment/<name> --replicas=<N> [-n <ns>]
+    if len(tokens) >= 4 and tokens[1] == "scale":
+        resource = tokens[2]
+        if not resource.startswith("deployment/"):
+            raise HTTPException(status_code=400, detail="Solo se permite 'deployment/<name>' en scale")
+        name = resource[len("deployment/"):]
+        if not _K8S_NAME_RE.match(name):
+            raise HTTPException(status_code=400, detail="Nombre de deployment inválido")
+        replicas_arg = tokens[3]
+        if not replicas_arg.startswith("--replicas="):
+            raise HTTPException(status_code=400, detail="Se requiere --replicas=<N>")
+        replicas_str = replicas_arg[len("--replicas="):]
+        if not replicas_str.isdigit() or not (0 <= int(replicas_str) <= 10):
+            raise HTTPException(status_code=400, detail="Réplicas deben ser un entero entre 0 y 10")
+        if len(tokens) == 6 and tokens[4] == "-n":
+            if not _K8S_NAME_RE.match(tokens[5]):
+                raise HTTPException(status_code=400, detail="Nombre de namespace inválido")
+        elif len(tokens) != 4:
+            raise HTTPException(status_code=400, detail="Formato de comando scale no permitido")
+        return tokens
+
+    raise HTTPException(status_code=400, detail="Subcomando kubectl no permitido")
+
+
+def _run_kubernetes_command(tokens: list[str]) -> tuple[int, str, str]:
+    """
+    Ejecuta un comando kubectl validado mediante subprocess.
+    Retorna (exit_code, stdout, stderr).
+
+    K8S_PROXY_URL: si está definida, inyecta --server=<url> para redirigir kubectl
+    al proxy HTTP (útil en Docker Desktop donde 127.0.0.1:6443 no es alcanzable
+    desde dentro del contenedor pero sí la IP LAN del host vía kubectl proxy).
+    """
+    cmd = list(tokens)
+    proxy_url = os.getenv("K8S_PROXY_URL", "").strip()
+    if proxy_url:
+        # Inserta --server justo después de "kubectl" para que aplique a cualquier subcomando
+        cmd = [cmd[0], f"--server={proxy_url}", "--insecure-skip-tls-verify=true"] + cmd[1:]
+
+    try:
+        completed = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        return completed.returncode, (completed.stdout or "").strip(), (completed.stderr or "").strip()
+    except FileNotFoundError:
+        return 127, "", "El binario 'kubectl' no está disponible en el backend"
+    except subprocess.TimeoutExpired as exc:
+        return 124, (exc.stdout or "").strip(), "Timeout al ejecutar el comando kubectl"
+
 
 def _run_podman_command(subcommand: str, container_name: str) -> tuple[int, str, str]:
     """
@@ -255,7 +356,11 @@ async def execute_action(
         )
 
     source_type = (incident.get("source_type") or "container").lower()
-    is_postgres  = requested_command.split()[0] in _PG_ALLOWED_FUNCS or source_type == "database"
+    is_postgres    = requested_command.split()[0] in _PG_ALLOWED_FUNCS or source_type == "database"
+    is_kubernetes  = (
+        incident.get("container_runtime") == "kubernetes"
+        or requested_command.startswith("kubectl ")
+    )
 
     supabase.table("incidents").update({"status": "executing_solution"}).eq("id", body.incident_id).execute()
     record_event(body.incident_id, "executing_solution")
@@ -308,6 +413,55 @@ async def execute_action(
             stdout=stdout,
             stderr=stderr,
             friendly_message="La ejecución Postgres falló. Revisa los logs del backend.",
+        )
+
+    # ── Rama Kubernetes ──────────────────────────────────────────────────────
+    if is_kubernetes and not is_postgres:
+        k8s_tokens = _validate_kubernetes_command(requested_command)
+        logger.info(f"[actions] Ejecutando kubectl: {' '.join(k8s_tokens)}")
+        exit_code, stdout, stderr = _run_kubernetes_command(k8s_tokens)
+
+        if exit_code == 0:
+            supabase.table("incidents").update({
+                "status": "verifying",
+                "action_result": stdout,
+                "action_error": stderr or None,
+                "executed_at": executed_at,
+            }).eq("id", body.incident_id).execute()
+            record_event(body.incident_id, "verifying")
+
+            current_reasoning = (incident.get("agent_reasoning") or "").strip()
+            background_tasks.add_task(
+                verify_resolution,
+                body.incident_id,
+                incident.get("target", ""),
+                "kubernetes",
+                current_reasoning,
+            )
+
+            return ExecuteActionResponse(
+                incident_id=body.incident_id,
+                status="verifying",
+                exit_code=0,
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+        supabase.table("incidents").update({
+            "status": "failed",
+            "action_result": stdout,
+            "action_error": stderr,
+            "executed_at": executed_at,
+        }).eq("id", body.incident_id).execute()
+        record_event(body.incident_id, "failed")
+
+        return ExecuteActionResponse(
+            incident_id=body.incident_id,
+            status="failed",
+            exit_code=exit_code,
+            stdout=stdout,
+            stderr=stderr,
+            friendly_message="La ejecución kubectl falló. Revisa los logs del backend.",
         )
 
     # ── Rama Docker / Podman ─────────────────────────────────────────────────
