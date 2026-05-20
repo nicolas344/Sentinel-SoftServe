@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   exportPostMortemMarkdown,
-  exportPostMortemPdf,
   fetchPostMortem,
   savePostMortem,
 } from '../services/incidentExports'
@@ -92,13 +91,6 @@ export default function PostMortemEditor({ incident }) {
             className="text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:border-slate-500 disabled:opacity-50 transition-colors"
           >
             Exportar .md
-          </button>
-          <button
-            onClick={() => exportPostMortemPdf(content, incident.title)}
-            disabled={!content || loading}
-            className="text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:border-slate-500 disabled:opacity-50 transition-colors"
-          >
-            Exportar PDF
           </button>
           <button
             onClick={onSave}

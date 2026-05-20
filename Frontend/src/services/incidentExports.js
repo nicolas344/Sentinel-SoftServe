@@ -1,4 +1,3 @@
-import { jsPDF } from 'jspdf'
 import { supabase } from '../lib/supabase'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
@@ -74,16 +73,3 @@ export function exportPostMortemMarkdown(content, title) {
   triggerTextDownload(content, `postmortem_${safeTitle}.md`, 'text/markdown;charset=utf-8')
 }
 
-export function exportPostMortemPdf(content, title) {
-  const safeTitle = String(title || 'incident').replace(/[^a-zA-Z0-9_-]/g, '_')
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' })
-  const margin = 40
-  const pageWidth = doc.internal.pageSize.getWidth()
-  const usableWidth = pageWidth - margin * 2
-
-  doc.setFont('helvetica', 'normal')
-  doc.setFontSize(10)
-  const lines = doc.splitTextToSize(content || '', usableWidth)
-  doc.text(lines, margin, margin + 10)
-  doc.save(`postmortem_${safeTitle}.pdf`)
-}
