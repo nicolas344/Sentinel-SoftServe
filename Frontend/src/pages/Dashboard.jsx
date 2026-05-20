@@ -99,9 +99,10 @@ const STATUS_LABEL = {
 }
 
 const RUNTIME_BADGE = {
-  docker:   'bg-blue-900/40 text-blue-400',
-  podman:   'bg-purple-900/40 text-purple-400',
-  database: 'bg-amber-900/40 text-amber-400',
+  docker:     'bg-blue-900/40 text-blue-400',
+  podman:     'bg-purple-900/40 text-purple-400',
+  kubernetes: 'bg-cyan-900/40 text-cyan-400',
+  database:   'bg-amber-900/40 text-amber-400',
 }
 
 function Badge({ className, children }) {

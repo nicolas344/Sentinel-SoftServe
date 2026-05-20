@@ -99,6 +99,42 @@ def get_container_metrics(container_name: str) -> dict:
     }
 
 
+def get_kubernetes_metrics(pod_name: str, namespace: str = "default") -> dict:
+    """
+    Métricas de un pod Kubernetes via kube-state-metrics y cAdvisor.
+    Retorna siempre un dict con type='kubernetes'; los campos pueden ser None
+    si kube-state-metrics no está disponible o el pod no existe en Prometheus.
+    """
+    ns_pod = f'namespace="{namespace}",pod="{pod_name}"'
+
+    # CPU: uso en cores (kube-state-metrics no provee CPU directamente; usamos cAdvisor)
+    cpu_rate   = _query(f'sum(rate(container_cpu_usage_seconds_total{{{ns_pod},container!=""}}[5m]))')
+    mem_usage  = _query(f'sum(container_memory_working_set_bytes{{{ns_pod},container!=""}})')
+    mem_limit  = _query(f'sum(container_spec_memory_limit_bytes{{{ns_pod},container!="",container!="POD"}})')
+
+    # kube-state-metrics
+    restarts  = _query(f'sum(kube_pod_container_status_restarts_total{{{ns_pod}}})')
+    ready     = _query(f'kube_pod_status_ready{{{ns_pod},condition="true"}}')
+    phase_run = _query(f'kube_pod_status_phase{{{ns_pod},phase="Running"}}')
+
+    mem_mb       = round(mem_usage / 1024 / 1024, 1) if mem_usage is not None else None
+    mem_limit_mb = round(mem_limit / 1024 / 1024, 1) if mem_limit is not None else None
+    mem_pct      = None
+    if mem_mb is not None and mem_limit_mb and mem_limit_mb > 0:
+        mem_pct = round(mem_mb / mem_limit_mb * 100, 1)
+
+    return {
+        "type":           "kubernetes",
+        "cpu_percent":    round(cpu_rate * 100, 2) if cpu_rate is not None else None,
+        "mem_usage_mb":   mem_mb,
+        "mem_limit_mb":   mem_limit_mb,
+        "mem_percent":    mem_pct,
+        "restarts_total": int(restarts) if restarts is not None else None,
+        "ready":          bool(ready) if ready is not None else None,
+        "running":        bool(phase_run) if phase_run is not None else None,
+    }
+
+
 def get_postgres_metrics(datname: str) -> dict:
     """
     Métricas en tiempo real de una base de datos PostgreSQL via postgres-exporter.
