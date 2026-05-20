@@ -241,8 +241,32 @@ def run_triage(ctx: IncidentContext) -> None:
 
     try:
         # ── Guardrail de ENTRADA (grafo LangGraph: reglas → LLM-juez) ─────────
+        guard_in_span = None
+        if trace:
+            try:
+                guard_in_span = trace.span(
+                    name="Guardrail Input — Rules + LLM Judge",
+                    input={"title": ctx.title, "logs_chars": len(ctx.logs or "")},
+                )
+            except Exception:
+                pass
+
         input_state = guardrail_graph.run_input_guardrail(ctx.title, ctx.logs)
         ctx.logs = input_state.get("sanitized", ctx.logs)
+
+        if guard_in_span:
+            try:
+                guard_in_span.end(
+                    output={
+                        "rules_passed": input_state.get("rules_passed"),
+                        "llm_passed": input_state.get("llm_passed"),
+                        "violations": input_state.get("violations", []),
+                    },
+                    metadata={"safe": not input_state.get("violations")},
+                )
+            except Exception:
+                pass
+
         if input_state.get("violations"):
             logger.warning(
                 f"[Supervisor] Guardrail de entrada activado en {ctx.incident_id[:8]}: "
@@ -329,8 +353,32 @@ def run_triage(ctx: IncidentContext) -> None:
         result = agent.investigate(ctx)
 
         # ── Guardrail de SALIDA (grafo LangGraph: reglas → LLM-juez) ──────────
+        guard_out_span = None
+        if trace:
+            try:
+                guard_out_span = trace.span(
+                    name="Guardrail Output — Rules + LLM Judge",
+                    input={"analysis_chars": len(result.analysis or "")},
+                )
+            except Exception:
+                pass
+
         output_state = guardrail_graph.run_output_guardrail(result.analysis)
         result.analysis = output_state.get("sanitized", result.analysis)
+
+        if guard_out_span:
+            try:
+                guard_out_span.end(
+                    output={
+                        "rules_passed": output_state.get("rules_passed"),
+                        "llm_passed": output_state.get("llm_passed"),
+                        "violations": output_state.get("violations", []),
+                    },
+                    metadata={"safe": not output_state.get("violations")},
+                )
+            except Exception:
+                pass
+
         if output_state.get("violations"):
             logger.warning(
                 f"[Supervisor] Guardrail de salida activado en {ctx.incident_id[:8]}: "
