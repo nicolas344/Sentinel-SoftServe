@@ -273,6 +273,7 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
         return None
 
     title = _build_title(alert_name, target, source_type)
+    fingerprint = (alert.get("fingerprint") or "").strip() or None
 
     incident = {
         "title":             title,
@@ -283,6 +284,7 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
         "container_runtime": container_runtime,
         "logs":              logs or None,
         "server_name":       server_name,
+        "fingerprint":       fingerprint,
     }
 
     try:
@@ -293,6 +295,16 @@ def process_prometheus_alert(alert: dict) -> Optional[Tuple[str, str, str, str, 
             f"source: {source_type}, runtime: {container_runtime}, severidad: {severity}"
         )
     except Exception as e:
+        # El índice único parcial sobre fingerprint (migración 0002) garantiza
+        # a nivel de BD que no haya dos incidentes activos para la misma alerta,
+        # incluso si varias llegan en paralelo y pasan el check anterior.
+        message = str(e)
+        if "23505" in message or "duplicate key" in message.lower():
+            logger.info(
+                f"Incidente activo ya existe para fingerprint '{fingerprint}' "
+                f"({alert_name}) — omitiendo duplicado"
+            )
+            return None
         logger.error(f"Error al crear incidente en Supabase: {e}")
         return None
 

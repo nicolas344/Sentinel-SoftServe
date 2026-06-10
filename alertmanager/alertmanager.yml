@@ -13,6 +13,12 @@ receivers:
     webhook_configs:
       - url: "http://sentinel-backend:8000/api/alerts"
         send_resolved: true
+        # Debe coincidir con ALERT_WEBHOOK_SECRET del backend.
+        # Cambiar este valor en cualquier entorno que no sea demo local.
+        http_config:
+          authorization:
+            type: Bearer
+            credentials: "sentinel-webhook-secret-change-me"
 
 inhibit_rules:
   # OOM Kill es la causa raíz — suprimir alarmas de síntomas del mismo contenedor

@@ -102,6 +102,15 @@ LANGFUSE_HOST=http://localhost:3001
 LOKI_URL=http://localhost:3100
 CHROMA_HOST=http://localhost:8001
 PROMETHEUS_URL=http://localhost:9090
+
+# Secreto compartido del webhook /api/alerts (debe coincidir con
+# http_config.authorization.credentials en alertmanager/alertmanager.yml).
+# Si se omite, el webhook queda abierto (solo aceptable en desarrollo).
+ALERT_WEBHOOK_SECRET=sentinel-webhook-secret-change-me
+
+# CORS (opcional): orígenes permitidos separados por coma. Default: Vite dev server.
+# En producción: CORS_ORIGINS=https://sentinel-softserve-1.onrender.com
+# CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
 **Frontend** — create `Frontend/.env.local`:
@@ -112,13 +121,20 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_API_URL=http://localhost:8000
 ```
 
-### 3. Start the infrastructure stack
+### 3. Database schema (new Supabase projects only)
+
+The schema lives in [`supabase/migrations/`](supabase/migrations/). For a fresh
+Supabase project, run the SQL files in order from the SQL Editor (or with
+`supabase db push`). The team's existing project already has the baseline
+schema — only apply `0002_production_hardening.sql` there.
+
+### 4. Start the infrastructure stack
 
 ```bash
 docker compose up -d
 ```
 
-### 4. Set up the backend
+### 5. Set up the backend
 
 ```bash
 cd Backend
@@ -127,7 +143,7 @@ source env/bin/activate      # Windows: env\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 5. Seed ChromaDB with runbooks (one time only)
+### 6. Seed ChromaDB with runbooks (one time only)
 
 ```bash
 cd Backend
