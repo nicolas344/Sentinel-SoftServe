@@ -226,12 +226,26 @@ async def create_incident(
     return created_incident
 
 
-def _runbook_collection(source_type: str) -> str:
-    return "runbooks-postgres" if source_type == "database" else "runbooks-docker"
+def _memory_domain(source_type: str, container_runtime: Optional[str]) -> str:
+    """
+    Dominio de memoria ChromaDB del incidente. Debe coincidir con la convención
+    de DomainAgent (`runbooks-{name}` / `incidents-{name}`): docker, podman,
+    kubernetes o postgres.
+    """
+    if source_type == "database":
+        return "postgres"
+    runtime = (container_runtime or "").lower()
+    if runtime in ("podman", "kubernetes"):
+        return runtime
+    return "docker"
 
 
-def _incidents_collection(source_type: str) -> str:
-    return "incidents-postgres" if source_type == "database" else "incidents-docker"
+def _runbook_collection(source_type: str, container_runtime: Optional[str] = None) -> str:
+    return f"runbooks-{_memory_domain(source_type, container_runtime)}"
+
+
+def _incidents_collection(source_type: str, container_runtime: Optional[str] = None) -> str:
+    return f"incidents-{_memory_domain(source_type, container_runtime)}"
 
 
 def _parse_runbook_title(text: str) -> str:
@@ -251,7 +265,7 @@ async def get_incident_runbooks(
     try:
         response = (
             supabase.table("incidents")
-            .select("source_type,incident_type,title")
+            .select("source_type,container_runtime,incident_type,title")
             .eq("id", incident_id)
             .single()
             .execute()
@@ -262,7 +276,10 @@ async def get_incident_runbooks(
         raise HTTPException(status_code=404, detail="Incidente no encontrado")
 
     incident = response.data
-    collection = _runbook_collection(incident.get("source_type") or "container")
+    collection = _runbook_collection(
+        incident.get("source_type") or "container",
+        incident.get("container_runtime"),
+    )
     query = q or f"{incident.get('incident_type') or 'unknown'} {incident.get('title') or ''}"
 
     texts = query_runbooks(collection, query.strip(), k=5)
@@ -277,7 +294,7 @@ async def get_similar_incidents(
     try:
         response = (
             supabase.table("incidents")
-            .select("source_type,incident_type,title,severity")
+            .select("source_type,container_runtime,incident_type,title,severity")
             .eq("id", incident_id)
             .single()
             .execute()
@@ -288,7 +305,10 @@ async def get_similar_incidents(
         raise HTTPException(status_code=404, detail="Incidente no encontrado")
 
     incident = response.data
-    collection = _incidents_collection(incident.get("source_type") or "container")
+    collection = _incidents_collection(
+        incident.get("source_type") or "container",
+        incident.get("container_runtime"),
+    )
     query = f"{incident.get('incident_type') or 'unknown'} {incident.get('title') or ''}"
 
     results = query_incidents(collection, query.strip(), k=6)

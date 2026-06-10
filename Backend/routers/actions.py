@@ -27,6 +27,11 @@ _PG_ALLOWED_FUNCS    = {"pg_stat_activity", "pg_cancel_backend", "pg_terminate_b
 _PODMAN_ALLOWED_CMDS = {"restart", "logs"}
 
 
+def _user_identity(user: dict) -> str:
+    """Identidad legible del usuario autenticado para auditoría (email o sub del JWT)."""
+    return user.get("email") or user.get("sub") or "unknown"
+
+
 class ExecuteActionRequest(BaseModel):
     incident_id: str = Field(..., min_length=1)
     command: str = Field(..., min_length=1, max_length=200)
@@ -362,7 +367,22 @@ async def execute_action(
         or requested_command.startswith("kubectl ")
     )
 
-    supabase.table("incidents").update({"status": "executing_solution"}).eq("id", body.incident_id).execute()
+    # Claim atómico: solo gana quien encuentre el incidente todavía en
+    # 'awaiting_approval'. Si otro usuario lo ejecutó en paralelo, el UPDATE
+    # no afecta filas y respondemos 409 en lugar de ejecutar dos veces.
+    approved_by = _user_identity(user)
+    claim = (
+        supabase.table("incidents")
+        .update({"status": "executing_solution", "approved_by": approved_by})
+        .eq("id", body.incident_id)
+        .eq("status", "awaiting_approval")
+        .execute()
+    )
+    if not claim.data:
+        raise HTTPException(
+            status_code=409,
+            detail="La accion ya fue ejecutada o el incidente cambio de estado",
+        )
     record_event(body.incident_id, "executing_solution")
     executed_at = datetime.now(tz=timezone.utc).isoformat()
 
@@ -572,23 +592,34 @@ class ActionDecisionRequest(BaseModel):
     comment: str = Field(default="", max_length=500)
 
 
-def _get_awaiting_incident(incident_id: str):
-    response = (
+def _decide_awaiting_incident(incident_id: str, update_fields: dict) -> None:
+    """
+    Aplica la decisión (rechazar/posponer) de forma atómica: el UPDATE solo
+    procede si el incidente sigue en 'awaiting_approval'. Distingue 404 de 409
+    consultando el incidente cuando el claim no afecta filas.
+    """
+    claim = (
         supabase.table("incidents")
-        .select("id,status")
+        .update(update_fields)
         .eq("id", incident_id)
-        .single()
+        .eq("status", "awaiting_approval")
         .execute()
     )
-    incident = response.data
-    if not incident:
+    if claim.data:
+        return
+
+    exists = (
+        supabase.table("incidents")
+        .select("id")
+        .eq("id", incident_id)
+        .execute()
+    )
+    if not exists.data:
         raise HTTPException(status_code=404, detail="Incidente no encontrado")
-    if incident.get("status") != "awaiting_approval":
-        raise HTTPException(
-            status_code=409,
-            detail="El incidente no está en estado 'Esperando aprobación'",
-        )
-    return incident
+    raise HTTPException(
+        status_code=409,
+        detail="El incidente no está en estado 'Esperando aprobación'",
+    )
 
 
 @router.post("/incidents/{incident_id}/reject")
@@ -597,13 +628,13 @@ async def reject_action(
     body: ActionDecisionRequest,
     user=Depends(get_current_user),
 ):
-    _get_awaiting_incident(incident_id)
     note = body.comment.strip() or "Acción rechazada por el ingeniero."
-    supabase.table("incidents").update({
+    _decide_awaiting_incident(incident_id, {
         "status": "failed",
         "action_error": f"[RECHAZADO] {note}",
+        "approved_by": _user_identity(user),
         "executed_at": datetime.now(tz=timezone.utc).isoformat(),
-    }).eq("id", incident_id).execute()
+    })
     record_event(incident_id, "failed")
     return {"incident_id": incident_id, "status": "failed", "note": note}
 
@@ -614,11 +645,11 @@ async def postpone_action(
     body: ActionDecisionRequest,
     user=Depends(get_current_user),
 ):
-    _get_awaiting_incident(incident_id)
     note = body.comment.strip() or "Acción pospuesta por el ingeniero."
-    supabase.table("incidents").update({
+    _decide_awaiting_incident(incident_id, {
         "status": "analyzed",
         "action_error": f"[POSPUESTO] {note}",
-    }).eq("id", incident_id).execute()
+        "approved_by": _user_identity(user),
+    })
     record_event(incident_id, "analyzed")
     return {"incident_id": incident_id, "status": "analyzed", "note": note}
